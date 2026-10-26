@@ -1,0 +1,58 @@
+abstract final class OmaIcons {
+  static const search = 'assets/icons/search.svg';
+  static const scanBarcode = 'assets/icons/scan_barcode.svg';
+  static const drill = 'assets/icons/drill.svg';
+  static const bath = 'assets/icons/bath.svg';
+  static const paintRoller = 'assets/icons/paint_roller.svg';
+  static const paintRollerLg = 'assets/icons/paint_roller_lg.svg';
+  static const paintRollerEvent = 'assets/icons/paint_roller_event.svg';
+  static const paintRollerXl = 'assets/icons/paint_roller_xl.svg';
+  static const keyRound = 'assets/icons/key_round.svg';
+  static const keyRoundLg = 'assets/icons/key_round_lg.svg';
+  static const mapPin = 'assets/icons/map_pin.svg';
+  static const chevronDown = 'assets/icons/chevron_down.svg';
+  static const chevronLeft = 'assets/icons/chevron_left.svg';
+  static const chevronRight = 'assets/icons/chevron_right.svg';
+  static const ellipsis = 'assets/icons/ellipsis.svg';
+  static const circle = 'assets/icons/circle.svg';
+  static const circleCheck = 'assets/icons/circle_check.svg';
+  static const droplets = 'assets/icons/droplets.svg';
+  static const house = 'assets/icons/house.svg';
+  static const coffee = 'assets/icons/coffee.svg';
+  static const snowflake = 'assets/icons/snowflake.svg';
+  static const info = 'assets/icons/info.svg';
+  static const alert = 'assets/icons/alert.svg';
+  static const pencil = 'assets/icons/pencil.svg';
+  static const calendar = 'assets/icons/calendar.svg';
+  static const close = 'assets/icons/x.svg';
+  static const paperclip = 'assets/icons/paperclip.svg';
+  static const gitBranch = 'assets/icons/git_branch.svg';
+  static const heart = 'assets/icons/heart.svg';
+  static const package = 'assets/icons/package.svg';
+  static const trash = 'assets/icons/trash.svg';
+  static const check = 'assets/icons/check.svg';
+  static const navHome = 'assets/icons/nav_home.svg';
+  static const navHomeIdle = 'assets/icons/nav_home_idle.svg';
+  static const navSearch = 'assets/icons/nav_search.svg';
+  static const navSearchActive = 'assets/icons/nav_search_active.svg';
+  static const navBag = 'assets/icons/nav_bag.svg';
+  static const navBagActive = 'assets/icons/nav_bag_active.svg';
+  static const navHeart = 'assets/icons/nav_heart.svg';
+  static const navUser = 'assets/icons/nav_user.svg';
+  static const navUserActive = 'assets/icons/nav_user_active.svg';
+}
+
+abstract final class OmaImages {
+  static const kitchen = 'assets/images/kitchen.png';
+  static const faucet = 'assets/images/faucet.png';
+  static const faucetBlack = 'assets/images/faucet_black.png';
+  static const logoSource = 'assets/images/logo_source.png';
+  static const attachmentKitchen = 'assets/images/attachment_kitchen.png';
+  static const attachmentPlan = 'assets/images/attachment_plan.png';
+  static const imgIcon = 'assets/images/img_icon.png';
+  static const catalogRow = 'assets/images/catalog_row.png';
+  static const homeRef = 'assets/images/home_ref.png';
+  static const homeStories = 'assets/images/home_stories.png';
+  static const homeHalva = 'assets/images/home_halva.png';
+  static const homePosuda = 'assets/images/home_posuda.png';
+}
