@@ -21,6 +21,23 @@ void main() {
     expect(find.text('Профиль'), findsWidgets);
   });
 
+  testWidgets('Services opens the masters catalog', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(OmaApp(prefs: prefs));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await tester.tap(find.text('Услуги').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Найти мастера'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Найдите исполнителя под задачу'), findsOneWidget);
+  });
+
   testWidgets('Bottom nav opens services hub', (tester) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();

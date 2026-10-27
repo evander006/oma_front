@@ -64,7 +64,7 @@ class _PropertyPassportScreenState extends State<PropertyPassportScreen> {
         OmaButton(
           label: 'Найти мастера',
           kind: OmaButtonKind.secondary,
-          onPressed: () => context.push('/masters'),
+          onPressed: () => context.push(AppRoutes.masters),
         ),
       ],
       children: [

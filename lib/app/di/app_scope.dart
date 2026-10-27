@@ -6,6 +6,8 @@ import 'package:oma/core/repositories/ai_chat_repository.dart';
 import 'package:oma/core/repositories/catalog_repository.dart';
 import 'package:oma/core/repositories/commerce_repository.dart';
 import 'package:oma/core/repositories/loyalty_repository.dart';
+import 'package:oma/core/repositories/home_passport_repository.dart';
+import 'package:oma/core/repositories/masters_repository.dart';
 import 'package:oma/core/repositories/orders_repository.dart';
 import 'package:oma/core/repositories/profile_repository.dart';
 import 'package:oma/core/repositories/properties_repository.dart';
@@ -15,6 +17,7 @@ import 'package:oma/features/cart/cubit/cart_cubit.dart';
 import 'package:oma/features/catalog/cubit/catalog_cubit.dart';
 import 'package:oma/features/favorites/cubit/favorites_cubit.dart';
 import 'package:oma/features/my_home/cubit/properties_cubit.dart';
+import 'package:oma/features/masters/cubit/masters_cubit.dart';
 import 'package:oma/features/orders/cubit/orders_cubit.dart';
 import 'package:oma/features/projects/cubit/projects_cubit.dart';
 import 'package:oma/shared/models/product.dart';
@@ -59,6 +62,13 @@ class AppScope extends StatelessWidget {
     final PropertiesRepository properties = useMock
         ? LocalPropertiesRepository(prefs)
         : RemotePropertiesRepository(dio, prefs);
+    final HomePassportRepository passport = useMock
+        ? LocalHomePassportRepository(prefs)
+        : RemoteHomePassportRepository(dio);
+    final demoMasters = DemoMastersRepository(prefs);
+    final MastersRepository masters = useMock
+        ? demoMasters
+        : RemoteMastersRepository(dio, demoMasters);
     final orders = OrdersRepository(prefs);
     final localRenovation = LocalRenovationRepository(prefs);
     final RenovationRepository renovation = useMock
@@ -79,6 +89,8 @@ class AppScope extends StatelessWidget {
           RepositoryProvider<CommerceRepository>.value(value: commerce),
         RepositoryProvider<AiChatRepository>.value(value: ai),
         RepositoryProvider.value(value: properties),
+        RepositoryProvider<HomePassportRepository>.value(value: passport),
+        RepositoryProvider<MastersRepository>.value(value: masters),
         RepositoryProvider.value(value: orders),
         RepositoryProvider<RenovationRepository>.value(value: renovation),
         RepositoryProvider<ServicesRepository>.value(value: services),
@@ -95,6 +107,7 @@ class AppScope extends StatelessWidget {
           ),
           BlocProvider(create: (_) => CatalogCubit(catalog)..load()),
           BlocProvider(create: (_) => PropertiesCubit(properties)),
+          BlocProvider(create: (_) => MastersCubit(masters)..load()),
           BlocProvider(create: (_) => OrdersCubit(orders, commerce: commerce)),
           BlocProvider(
             create: (_) => ProjectsCubit(renovation)..load(),

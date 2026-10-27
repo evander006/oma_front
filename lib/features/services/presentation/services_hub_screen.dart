@@ -55,6 +55,31 @@ class ServicesHubScreen extends StatelessWidget {
               ),
             ),
             OmaSurfaceCard(
+              onTap: () => context.push(AppRoutes.masters),
+              child: Row(
+                children: [
+                  const Icon(Icons.handyman_outlined, color: OmaColors.blue),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Найти мастера',
+                          style: OmaType.semibold(16, OmaColors.ink),
+                        ),
+                        Text(
+                          'Каталог специалистов, заявки и история обращений',
+                          style: OmaType.regular(12, OmaColors.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: OmaColors.muted),
+                ],
+              ),
+            ),
+            OmaSurfaceCard(
               onTap: () => context.push(AppRoutes.measurer),
               child: Row(
                 children: [

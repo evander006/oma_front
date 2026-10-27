@@ -8,6 +8,13 @@ abstract final class AppRoutes {
   static const cart = '/cart';
   static const favorites = '/favorites';
 
+  // Contractor marketplace: demo catalog, requests, and dashboard.
+  static const masters = '/masters';
+  static const myMasters = '/masters/mine';
+  static const contractorDashboard = '/masters/contractor';
+  static const masterProfile = '/masters/profile/:masterId';
+  static const masterRequest = '/masters/request/:masterId';
+
   static const onboarding = '/onboarding';
   static const onboardingHousing = '/onboarding/housing';
   static const onboardingPhotos = '/onboarding/photos';
@@ -16,6 +23,7 @@ abstract final class AppRoutes {
 
   static const myHome = '/profile/my-home';
   static const property = '/profile/property/:propertyId';
+  static const propertyPassport = '/profile/property/:propertyId/passport';
   static const propertyEdit = '/profile/property/:propertyId/edit';
   static const propertyLayout = '/profile/property/:propertyId/layout';
   static const room = '/profile/property/:propertyId/room/:roomId';
@@ -47,7 +55,11 @@ abstract final class AppRoutes {
   static const aiDesignResults = '/ai-design/results';
   static const measurer = '/services/measurer';
 
+  static String masterPath(String id) => '/masters/profile/$id';
+  static String masterRequestPath(String id) => '/masters/request/$id';
   static String propertyPath(String id) => '/profile/property/$id';
+  static String propertyPassportPath(String id) =>
+      '/profile/property/$id/passport';
   static String propertyEditPath(String id) => '/profile/property/$id/edit';
   static String propertyLayoutPath(String id) => '/profile/property/$id/layout';
   static String roomPath(String propertyId, String roomId) =>

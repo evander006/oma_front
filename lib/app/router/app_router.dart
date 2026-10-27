@@ -8,8 +8,14 @@ import 'package:oma/features/favorites/presentation/favorites_screen.dart';
 import 'package:oma/features/home/presentation/home_screen.dart';
 import 'package:oma/features/installation/presentation/installation_flow_screen.dart';
 import 'package:oma/features/loyalty/presentation/loyalty_screen.dart';
+import 'package:oma/features/masters/presentation/contractor_dashboard_screen.dart';
+import 'package:oma/features/masters/presentation/master_profile_screen.dart';
+import 'package:oma/features/masters/presentation/master_request_screen.dart';
+import 'package:oma/features/masters/presentation/masters_catalog_screen.dart';
+import 'package:oma/features/masters/presentation/my_masters_screen.dart';
 import 'package:oma/features/my_home/presentation/missing_items_screen.dart';
 import 'package:oma/features/my_home/presentation/my_home_screens.dart';
+import 'package:oma/features/my_home/presentation/property_passport_screen.dart';
 import 'package:oma/features/my_home/presentation/room_purchases_screen.dart';
 import 'package:oma/features/my_home/presentation/room_screen.dart';
 import 'package:oma/features/my_home/presentation/suggestions_screen.dart';
@@ -62,6 +68,32 @@ GoRouter buildRouter() {
       GoRoute(
         path: AppRoutes.aiDesign,
         builder: (context, state) => const AiDesignFlowScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.masters,
+        builder: (context, state) => const MastersCatalogScreen(),
+        routes: [
+          GoRoute(
+            path: 'mine',
+            builder: (context, state) => const MyMastersScreen(),
+          ),
+          GoRoute(
+            path: 'contractor',
+            builder: (context, state) => const ContractorDashboardScreen(),
+          ),
+          GoRoute(
+            path: 'profile/:masterId',
+            builder: (context, state) => MasterProfileScreen(
+              masterId: state.pathParameters['masterId']!,
+            ),
+          ),
+          GoRoute(
+            path: 'request/:masterId',
+            builder: (context, state) => MasterRequestScreen(
+              masterId: state.pathParameters['masterId']!,
+            ),
+          ),
+        ],
       ),
       GoRoute(
         path: '/ai/room/:propertyId/:roomId',
@@ -178,6 +210,12 @@ GoRouter buildRouter() {
                       propertyId: state.pathParameters['propertyId']!,
                     ),
                     routes: [
+                      GoRoute(
+                        path: 'passport',
+                        builder: (context, state) => PropertyPassportScreen(
+                          propertyId: state.pathParameters['propertyId']!,
+                        ),
+                      ),
                       GoRoute(
                         path: 'edit',
                         builder: (context, state) => PropertyEditScreen(

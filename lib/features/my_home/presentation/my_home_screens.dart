@@ -199,7 +199,7 @@ class PropertyDetailScreen extends StatelessWidget {
                 label: 'Открыть паспорт дома',
                 kind: OmaButtonKind.secondary,
                 onPressed: () => context.push(
-                  '/profile/property/${property.id}/passport',
+                  AppRoutes.propertyPassportPath(property.id),
                 ),
               ),
             ],
@@ -232,7 +232,7 @@ class PropertyDetailScreen extends StatelessWidget {
                 title: 'Паспорт оборудования',
                 subtitle: 'Техника, установленные товары и характеристики',
                 onTap: () => context.push(
-                  '/profile/property/${property.id}/passport',
+                  AppRoutes.propertyPassportPath(property.id),
                 ),
               ),
               const SizedBox(height: 12),
@@ -240,7 +240,7 @@ class PropertyDetailScreen extends StatelessWidget {
                 label: '+ Добавить оборудование',
                 kind: OmaButtonKind.secondary,
                 onPressed: () => context.push(
-                  '/profile/property/${property.id}/passport',
+                  AppRoutes.propertyPassportPath(property.id),
                 ),
               ),
             ],
@@ -346,7 +346,7 @@ class PropertyDetailScreen extends StatelessWidget {
                   title: 'История работ и мастеров',
                   subtitle: 'Завершённые работы сохраняются в паспорте',
                   onTap: () => context.push(
-                    '/profile/property/${property.id}/passport',
+                    AppRoutes.propertyPassportPath(property.id),
                   ),
                 ),
               ],
