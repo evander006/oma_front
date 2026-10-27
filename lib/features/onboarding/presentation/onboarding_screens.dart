@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';

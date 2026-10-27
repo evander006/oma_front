@@ -17,8 +17,13 @@ class OnboardingPhoto {
   final String mimeType;
   final Uint8List bytes;
 
-  static Future<OnboardingPhoto> fromFile(XFile file) async {
-    final filename = file.name;
+  /// Validate filename and size without relying on platform-specific XFile
+  /// metadata. This is also used by unit tests with in-memory image bytes.
+  static OnboardingPhoto fromBytes({
+    required String name,
+    required Uint8List bytes,
+  }) {
+    final filename = name.trim();
     final ext = filename.split('.').last.toLowerCase();
     final mime = switch (ext) {
       'jpg' || 'jpeg' => 'image/jpeg',
@@ -29,10 +34,6 @@ class OnboardingPhoto {
     if (mime == null) {
       throw FormatException('Файл $filename: поддерживаются JPG, PNG и WEBP.');
     }
-    if (await file.length() > maxBytes) {
-      throw FormatException('Файл $filename больше 8 МБ.');
-    }
-    final bytes = await file.readAsBytes();
     if (bytes.isEmpty) {
       throw FormatException('Файл $filename пустой.');
     }
@@ -40,5 +41,17 @@ class OnboardingPhoto {
       throw FormatException('Файл $filename больше 8 МБ.');
     }
     return OnboardingPhoto(name: filename, mimeType: mime, bytes: bytes);
+  }
+
+  static Future<OnboardingPhoto> fromFile(XFile file) async {
+    // Picked files normally have a name. On some native platforms an XFile
+    // constructed from raw data does not; use a filesystem basename if present.
+    final filename = file.name.trim().isNotEmpty
+        ? file.name.trim()
+        : file.path.split(RegExp(r'[/\\]')).last;
+    if (await file.length() > maxBytes) {
+      throw FormatException('Файл $filename больше 8 МБ.');
+    }
+    return fromBytes(name: filename, bytes: await file.readAsBytes());
   }
 }
