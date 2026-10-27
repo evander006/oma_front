@@ -103,10 +103,16 @@ GoRouter buildRouter() {
         ),
       ),
       GoRoute(
-        path: '/room/:propertyId/:roomId/3d',
+        path: AppRoutes.room3d,
         builder: (context, state) => Room3dScreen(
           propertyId: state.pathParameters['propertyId']!,
           roomId: state.pathParameters['roomId']!,
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.property3d,
+        builder: (context, state) => Room3dScreen(
+          propertyId: state.pathParameters['propertyId']!,
         ),
       ),
       GoRoute(

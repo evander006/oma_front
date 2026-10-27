@@ -196,6 +196,13 @@ class PropertyDetailScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               OmaButton(
+                label: 'Осмотреть квартиру в 3D',
+                onPressed: () => context.push(
+                  AppRoutes.property3dPath(property.id),
+                ),
+              ),
+              const SizedBox(height: 10),
+              OmaButton(
                 label: 'Открыть паспорт дома',
                 kind: OmaButtonKind.secondary,
                 onPressed: () => context.push(

@@ -33,6 +33,7 @@ abstract final class AppRoutes {
   static const roomAi = '/ai/room/:propertyId/:roomId';
   /// Top-level — same shell/root Navigator clash as room AI chat.
   static const room3d = '/room/:propertyId/:roomId/3d';
+  static const property3d = '/home/:propertyId/3d';
   static const roomSuggestions =
       '/profile/property/:propertyId/room/:roomId/suggestions';
   static const roomMissing =
@@ -70,6 +71,7 @@ abstract final class AppRoutes {
       '/ai/room/$propertyId/$roomId';
   static String room3dPath(String propertyId, String roomId) =>
       '/room/$propertyId/$roomId/3d';
+  static String property3dPath(String propertyId) => '/home/$propertyId/3d';
   static String roomSuggestionsPath(String propertyId, String roomId) =>
       '/profile/property/$propertyId/room/$roomId/suggestions';
   static String roomMissingPath(String propertyId, String roomId) =>
