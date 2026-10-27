@@ -45,8 +45,12 @@ class Room3dScreen extends StatelessWidget {
         OmaButton(
           label: 'Технический паспорт жилья',
           kind: OmaButtonKind.secondary,
+          // A nested StatefulShellRoute cannot safely be pushed on top of
+          // this root-level 3D route: Flutter reserves the same Navigator
+          // GlobalKeys twice and crashes with !_keyReservation.contains(key).
+          // Replace the route stack when crossing into the profile shell.
           onPressed: () =>
-              context.push(AppRoutes.propertyPassportPath(propertyId)),
+              context.go(AppRoutes.propertyPassportPath(propertyId)),
         ),
       ],
     );
