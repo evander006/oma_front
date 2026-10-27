@@ -1,24 +1,59 @@
 import 'dart:convert';
 
 import 'package:oma/core/data/demo_properties.dart';
+import 'package:oma/core/data/mappers/property_mapper.dart';
+import 'package:oma/core/network/api_config.dart';
+import 'package:oma/core/network/dio_client.dart';
 import 'package:oma/shared/models/property.dart';
 import 'package:oma/shared/models/room.dart';
+import 'package:oma/shared/models/room_item.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
-class PropertiesRepository {
-  PropertiesRepository(this._prefs);
+abstract class PropertiesRepository {
+  Future<List<Property>> load();
+
+  /// Persist local-only fields (selection, room items overlay, extras).
+  Future<void> save(List<Property> properties);
+
+  Future<Property> createDraft({
+    required String name,
+    required PropertyType type,
+    String? address,
+    double? areaSqm,
+    int? livingRooms,
+    double? budgetByn,
+    String? goal,
+    bool isDraft = true,
+  });
+
+  Future<Room> createRoom({
+    required String propertyId,
+    required String name,
+    required String kind,
+  });
+
+  Future<void> addPlacement({
+    required String roomId,
+    required String productId,
+  });
+
+  Future<void> deleteProperty(String id);
+}
+
+class LocalPropertiesRepository implements PropertiesRepository {
+  LocalPropertiesRepository(this._prefs);
 
   final SharedPreferences _prefs;
   static const _key = 'oma_properties_v2';
   static const _uuid = Uuid();
 
-  List<Property> load() {
+  @override
+  Future<List<Property>> load() async {
     final raw = _prefs.getString(_key);
     if (raw == null || raw.isEmpty) {
       final demo = buildDemoProperties();
-      // Fire-and-forget persist so next launch keeps demo edits.
-      save(demo);
+      await save(demo);
       return demo;
     }
     try {
@@ -31,12 +66,14 @@ class PropertiesRepository {
     }
   }
 
+  @override
   Future<void> save(List<Property> properties) async {
     final encoded = jsonEncode(properties.map((e) => e.toJson()).toList());
     await _prefs.setString(_key, encoded);
   }
 
-  Property createDraft({
+  @override
+  Future<Property> createDraft({
     required String name,
     required PropertyType type,
     String? address,
@@ -45,7 +82,7 @@ class PropertiesRepository {
     double? budgetByn,
     String? goal,
     bool isDraft = true,
-  }) {
+  }) async {
     final rooms = _defaultRooms(type);
     return Property(
       id: _uuid.v4(),
@@ -62,6 +99,27 @@ class PropertiesRepository {
     );
   }
 
+  @override
+  Future<Room> createRoom({
+    required String propertyId,
+    required String name,
+    required String kind,
+  }) async {
+    return Room(id: _uuid.v4(), name: name, kind: kind);
+  }
+
+  @override
+  Future<void> addPlacement({
+    required String roomId,
+    required String productId,
+  }) async {}
+
+  @override
+  Future<void> deleteProperty(String id) async {
+    final list = await load();
+    await save(list.where((p) => p.id != id).toList());
+  }
+
   List<Room> _defaultRooms(PropertyType type) {
     final base = <(String, String)>[
       ('Гостиная', 'living'),
@@ -71,11 +129,234 @@ class PropertiesRepository {
       ('Прихожая', 'entry'),
       ('Коридор', 'hallway'),
     ];
-    if (type == PropertyType.house) {
-      // Same set for demo house.
-    }
     return base
         .map((e) => Room(id: _uuid.v4(), name: e.$1, kind: e.$2))
         .toList();
+  }
+}
+
+/// Remote properties/rooms from oma_be + local overlay (selection, items, extras).
+class RemotePropertiesRepository implements PropertiesRepository {
+  RemotePropertiesRepository(this._client, this._prefs);
+
+  final DioClient _client;
+  final SharedPreferences _prefs;
+  static const _overlayKey = 'oma_properties_overlay_v1';
+  static const _selectedKey = 'oma_selected_property_id';
+
+  Map<String, dynamic> _readOverlay() {
+    final raw = _prefs.getString(_overlayKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _writeOverlay(Map<String, dynamic> data) async {
+    await _prefs.setString(_overlayKey, jsonEncode(data));
+  }
+
+  bool _isRemoteId(String id) => int.tryParse(id) != null;
+
+  @override
+  Future<List<Property>> load() async {
+    try {
+      final propsRaw = await _client.get<List<dynamic>>(
+        '${ApiConfig.apiPrefix}/properties',
+      );
+      final roomsRaw = await _client.get<List<dynamic>>(
+        '${ApiConfig.apiPrefix}/rooms',
+      );
+      final overlay = _readOverlay();
+      final selectedId = _prefs.getString(_selectedKey);
+
+      final roomsByProperty = <String, List<Room>>{};
+      for (final raw in roomsRaw.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(raw);
+        final propertyId = '${map['property_id']}';
+        final roomId = '${map['id']}';
+        final photos = await _safePhotos(roomId);
+        final roomOverlay = (overlay['rooms'] as Map?)?[roomId] as Map?;
+        final items = (roomOverlay?['items'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map((e) => RoomItem.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        final room = PropertyMapper.roomFromApi(
+          map,
+          items: items,
+          photoPaths: photos,
+        );
+        roomsByProperty.putIfAbsent(propertyId, () => []).add(room);
+      }
+
+      final list = <Property>[];
+      for (final raw in propsRaw.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(raw);
+        final id = '${map['id']}';
+        final propOverlay = (overlay['properties'] as Map?)?[id] as Map?;
+        list.add(
+          PropertyMapper.propertyFromApi(
+            map,
+            rooms: roomsByProperty[id] ?? const [],
+            selected: selectedId == id,
+            areaSqm: (propOverlay?['areaSqm'] as num?)?.toDouble(),
+            livingRooms: propOverlay?['livingRooms'] as int?,
+            budgetByn: (propOverlay?['budgetByn'] as num?)?.toDouble(),
+            goal: propOverlay?['goal'] as String?,
+            isDraft: propOverlay?['isDraft'] as bool? ?? false,
+          ),
+        );
+      }
+
+      if (list.isNotEmpty && !list.any((p) => p.selected)) {
+        list[0] = list[0].copyWith(selected: true);
+      }
+      return list;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<List<String>> _safePhotos(String roomId) async {
+    try {
+      final data = await _client.get<List<dynamic>>(
+        '${ApiConfig.apiPrefix}/rooms/$roomId/photos',
+      );
+      return data
+          .whereType<Map>()
+          .map((e) => PropertyMapper.absolutePhotoUrl(e['url']?.toString()))
+          .where((u) => u.isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<void> save(List<Property> properties) async {
+    final overlay = _readOverlay();
+    final propOverlay = <String, dynamic>{
+      ...(overlay['properties'] as Map? ?? {}),
+    };
+    final roomOverlay = <String, dynamic>{
+      ...(overlay['rooms'] as Map? ?? {}),
+    };
+
+    String? selectedId;
+    for (final p in properties) {
+      if (p.selected) selectedId = p.id;
+      propOverlay[p.id] = {
+        'areaSqm': p.areaSqm,
+        'livingRooms': p.livingRooms,
+        'budgetByn': p.budgetByn,
+        'goal': p.goal,
+        'isDraft': p.isDraft,
+      };
+      for (final r in p.rooms) {
+        roomOverlay[r.id] = {
+          'items': r.items.map((e) => e.toJson()).toList(),
+        };
+      }
+    }
+
+    await _writeOverlay({
+      'properties': propOverlay,
+      'rooms': roomOverlay,
+    });
+    if (selectedId != null) {
+      await _prefs.setString(_selectedKey, selectedId);
+    }
+  }
+
+  @override
+  Future<Property> createDraft({
+    required String name,
+    required PropertyType type,
+    String? address,
+    double? areaSqm,
+    int? livingRooms,
+    double? budgetByn,
+    String? goal,
+    bool isDraft = true,
+  }) async {
+    final created = await _client.post<Map<String, dynamic>>(
+      '${ApiConfig.apiPrefix}/properties',
+      data: {
+        'name': name,
+        'address': address,
+        'property_type': PropertyMapper.typeToApi(type),
+      },
+    );
+    final propertyId = '${created['id']}';
+    const defaultRooms = <(String, String)>[
+      ('Гостиная', 'living'),
+      ('Спальня', 'bedroom'),
+      ('Кухня', 'kitchen'),
+      ('Санузел', 'bathroom'),
+      ('Прихожая', 'entry'),
+      ('Коридор', 'hallway'),
+    ];
+    final rooms = <Room>[];
+    for (final e in defaultRooms) {
+      rooms.add(
+        await createRoom(propertyId: propertyId, name: e.$1, kind: e.$2),
+      );
+    }
+
+    final property = PropertyMapper.propertyFromApi(
+      created,
+      rooms: rooms,
+      areaSqm: areaSqm,
+      livingRooms: livingRooms,
+      budgetByn: budgetByn,
+      goal: goal,
+      isDraft: isDraft,
+      selected: true,
+    );
+    await save([property]);
+    return property;
+  }
+
+  @override
+  Future<Room> createRoom({
+    required String propertyId,
+    required String name,
+    required String kind,
+  }) async {
+    final data = await _client.post<Map<String, dynamic>>(
+      '${ApiConfig.apiPrefix}/rooms',
+      data: {
+        'property_id': int.parse(propertyId),
+        'name': name,
+        'room_type': kind,
+      },
+    );
+    return PropertyMapper.roomFromApi(data);
+  }
+
+  @override
+  Future<void> addPlacement({
+    required String roomId,
+    required String productId,
+  }) async {
+    if (!_isRemoteId(roomId)) return;
+    await _client.dio.post(
+      '${ApiConfig.apiPrefix}/rooms/$roomId/placements',
+      queryParameters: {'product_id': productId},
+    );
+  }
+
+  @override
+  Future<void> deleteProperty(String id) async {
+    if (_isRemoteId(id)) {
+      await _client.delete('${ApiConfig.apiPrefix}/properties/$id');
+    }
+    final overlay = _readOverlay();
+    final props =
+        Map<String, dynamic>.from(overlay['properties'] as Map? ?? {});
+    props.remove(id);
+    await _writeOverlay({...overlay, 'properties': props});
   }
 }

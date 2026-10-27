@@ -119,7 +119,7 @@ class _TurnkeyWizardScreenState extends State<TurnkeyWizardScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Заявка сохранена локально. Удалённый endpoint пока не подключён.',
+              'Заявка отправлена в OMA. Дом API. Дата работ не подтверждена автоматически.',
             ),
           ),
         );

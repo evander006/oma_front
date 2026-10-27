@@ -53,7 +53,7 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
           'Это категории-кандидаты, не подтверждённый ассортимент. Изображения и цены условные до проверки.',
         ),
         OmaButton(
-          label: 'Применить к комнате · ${_selected.length} идеи',
+          label: 'Применить к комнате (${_selected.length})',
           onPressed: () => context.push(
             AppRoutes.room3dPath(widget.propertyId, widget.roomId),
           ),

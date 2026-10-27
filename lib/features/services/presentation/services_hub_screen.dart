@@ -39,10 +39,17 @@ class ServicesHubScreen extends StatelessWidget {
                     style: OmaType.regular(13, OmaColors.muted),
                   ),
                   const SizedBox(height: 12),
-                  OmaButton(
-                    label: 'Рассчитать стоимость',
-                    kind: OmaButtonKind.orange,
-                    onPressed: () => context.push(AppRoutes.turnkey),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      tooltip: 'Корзина',
+                      onPressed: () => context.push(AppRoutes.cart),
+                      icon: const Icon(
+                        Icons.shopping_cart_rounded,
+                        color: OmaColors.cartRed,
+                        size: 28,
+                      ),
+                    ),
                   ),
                 ],
               ),

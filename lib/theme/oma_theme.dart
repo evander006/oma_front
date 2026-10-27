@@ -2,23 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 abstract final class OmaColors {
-  static const background = Color(0xFFF6F6F6);
+  /// Figma home / ОМА. Дом tokens (node 160:3283).
+  static const background = Color(0xFFF4F6F8);
   static const white = Color(0xFFFFFFFF);
-  static const ink = Color(0xFF263640);
+  static const ink = Color(0xFF172F40);
   static const black = Color(0xFF171717);
-  static const muted = Color(0xFF75828C);
+  static const muted = Color(0xFF607482);
   static const hint = Color(0xFFB4BBC0);
   static const blue = Color(0xFF0065AE);
-  static const blueDark = Color(0xFF064E87);
-  static const blueSoft = Color(0xFFEEF5FA);
+  static const blueDark = Color(0xFF073D66);
+  static const blueSoft = Color(0xFFEAF3FA);
   static const orange = Color(0xFFFB981E);
   static const cream = Color(0xFFFFF3E3);
-  static const line = Color(0xFFE3E4E5);
-  static const searchFill = Color(0xFFECECED);
+  static const line = Color(0xFFDCE4E9);
+  static const searchFill = Color(0xFFFFFFFF);
   static const green = Color(0xFF25815A);
   static const greenSoft = Color(0xFFEAF6EF);
   static const danger = Color(0xFFC0392B);
   static const dangerSoft = Color(0xFFFDECEA);
+  static const cartRed = Color(0xFFE53935);
 }
 
 /// Shared spacing scale (dp).

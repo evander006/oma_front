@@ -26,6 +26,16 @@ abstract class AiChatRepository {
     int? sessionId,
     int? roomId,
     double? budget,
+    String? style,
+  });
+
+  /// Catalog-grounded recommendations (`POST /ai/recommendations`).
+  Future<AiChatResult> recommend({
+    required String prompt,
+    double? maxBudget,
+    String? preferredStyle,
+    List<String> categoryIds = const [],
+    int limit = 6,
   });
 }
 
@@ -58,6 +68,7 @@ class MockAiChatRepository implements AiChatRepository {
     int? sessionId,
     int? roomId,
     double? budget,
+    String? style,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 600));
     final lower = message.toLowerCase();
@@ -76,6 +87,17 @@ class MockAiChatRepository implements AiChatRepository {
       reply: assistantMessage(answer),
       sessionId: sessionId,
     );
+  }
+
+  @override
+  Future<AiChatResult> recommend({
+    required String prompt,
+    double? maxBudget,
+    String? preferredStyle,
+    List<String> categoryIds = const [],
+    int limit = 6,
+  }) {
+    return chat(message: prompt, budget: maxBudget, style: preferredStyle);
   }
 }
 
@@ -112,6 +134,7 @@ class RemoteAiChatRepository implements AiChatRepository {
     int? sessionId,
     int? roomId,
     double? budget,
+    String? style,
   }) async {
     final data = await _client.post<Map<String, dynamic>>(
       '${ApiConfig.apiPrefix}/ai/chat',
@@ -121,6 +144,7 @@ class RemoteAiChatRepository implements AiChatRepository {
         'room_id': roomId,
         'photo_ids': <int>[],
         if (budget != null) 'budget': budget,
+        if (style != null) 'style': style,
       },
     );
     final ids = (data['product_ids'] as List<dynamic>? ?? const [])
@@ -132,6 +156,41 @@ class RemoteAiChatRepository implements AiChatRepository {
     }
     return AiChatResult(
       reply: assistantMessage('${data['reply'] ?? ''}'),
+      sessionId: (data['session_id'] as num?)?.toInt(),
+      products: products,
+    );
+  }
+
+  @override
+  Future<AiChatResult> recommend({
+    required String prompt,
+    double? maxBudget,
+    String? preferredStyle,
+    List<String> categoryIds = const [],
+    int limit = 6,
+  }) async {
+    final data = await _client.post<Map<String, dynamic>>(
+      '${ApiConfig.apiPrefix}/ai/recommendations',
+      data: {
+        'prompt': prompt,
+        'budget': maxBudget,
+        'style': preferredStyle,
+        'category_ids': categoryIds,
+        'limit': limit,
+      },
+    );
+    var products = productsFromRecommendationPayload(data);
+    if (products.isEmpty) {
+      final ids = (data['product_ids'] as List<dynamic>? ?? const [])
+          .map((e) => '$e')
+          .toList();
+      if (ids.isNotEmpty && catalogByIds != null) {
+        products = await catalogByIds!(ids);
+      }
+    }
+    final summary = data['summary'] ?? data['reply'] ?? 'Подборка из каталога OMA.';
+    return AiChatResult(
+      reply: assistantMessage('$summary'),
       sessionId: (data['session_id'] as num?)?.toInt(),
       products: products,
     );

@@ -61,7 +61,7 @@ class ProductCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Демо-цена',
+                        'Цена из каталога · ${product.currency}',
                         style: OmaType.regular(11, OmaColors.muted),
                       ),
                       if (onAdd != null) ...[

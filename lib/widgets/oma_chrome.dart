@@ -123,7 +123,7 @@ class OmaBottomNav extends StatelessWidget {
       return Icon(
         _materialIcon(index, selected),
         size: 24,
-        color: selected ? OmaColors.orange : OmaColors.muted,
+        color: selected ? OmaColors.blue : OmaColors.muted,
       );
     }
     return OmaIcon(asset, size: 24);
@@ -145,7 +145,7 @@ class _Tab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? OmaColors.orange : OmaColors.muted;
+    final color = selected ? OmaColors.blue : OmaColors.muted;
     Widget iconWidget;
     if (icon.isEmpty) {
       final material = switch (label) {
@@ -194,59 +194,74 @@ class OmaHomeHeader extends StatelessWidget {
 
     return Material(
       color: OmaColors.white,
-      child: Container(
-        height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: OmaColors.line)),
-        ),
-        child: Row(
-          children: [
-            const OmaLogo(),
-            const Spacer(),
-            IconButton(
-              tooltip: 'Уведомления',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Уведомления появятся после подключения API'),
+      child: SizedBox(
+        height: 80,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => context.go(AppRoutes.myHome),
+                  behavior: HitTestBehavior.opaque,
+                  child: Text(
+                    '‹ Город',
+                    style: OmaType.regular(13, OmaColors.blue),
                   ),
-                );
-              },
-              icon: const Icon(
-                Icons.notifications_none_rounded,
-                color: OmaColors.ink,
-              ),
-            ),
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                IconButton(
-                  tooltip: 'Корзина',
-                  onPressed: () => context.push(AppRoutes.cart),
-                  icon: const OmaIcon(OmaIcons.navBag, size: 22),
                 ),
-                if (cartCount > 0)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      constraints: const BoxConstraints(minWidth: 16),
-                      decoration: BoxDecoration(
-                        color: OmaColors.orange,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        cartCount > 99 ? '99+' : '$cartCount',
-                        textAlign: TextAlign.center,
-                        style: OmaType.bold(9, OmaColors.ink),
+              ),
+              const OmaLogo(),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Уведомления появятся после подключения API',
                       ),
                     ),
+                  );
+                },
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: OmaIcon(OmaIcons.bell, size: 22),
+                ),
+              ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () => context.push(AppRoutes.cart),
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: OmaIcon(
+                    OmaIcons.cart,
+                    size: 22,
+                    color: OmaColors.cartRed,
                   ),
+                ),
+              ),
+              if (cartCount > 0) ...[
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: () => context.push(AppRoutes.cart),
+                  child: Container(
+                    width: 20,
+                    height: 20,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: OmaColors.orange,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      cartCount > 99 ? '99+' : '$cartCount',
+                      style: OmaType.bold(11, OmaColors.ink),
+                    ),
+                  ),
+                ),
               ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

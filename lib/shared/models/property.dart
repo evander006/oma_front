@@ -73,10 +73,12 @@ class Property extends Equatable {
 
   factory Property.fromJson(Map<String, dynamic> json) {
     return Property(
-      id: json['id'] as String,
+      id: '${json['id']}',
       name: json['name'] as String,
-      type: PropertyType.values.byName(json['type'] as String),
-      rooms: (json['rooms'] as List<dynamic>)
+      type: PropertyType.values.byName(
+        (json['type'] ?? json['property_type'] ?? 'apartment') as String,
+      ),
+      rooms: (json['rooms'] as List<dynamic>? ?? const [])
           .map((e) => Room.fromJson(e as Map<String, dynamic>))
           .toList(),
       address: json['address'] as String?,

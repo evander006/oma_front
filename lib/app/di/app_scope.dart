@@ -7,6 +7,7 @@ import 'package:oma/core/repositories/catalog_repository.dart';
 import 'package:oma/core/repositories/commerce_repository.dart';
 import 'package:oma/core/repositories/loyalty_repository.dart';
 import 'package:oma/core/repositories/orders_repository.dart';
+import 'package:oma/core/repositories/profile_repository.dart';
 import 'package:oma/core/repositories/properties_repository.dart';
 import 'package:oma/core/repositories/renovation_repository.dart';
 import 'package:oma/core/repositories/services_repository.dart';
@@ -31,7 +32,11 @@ class AppScope extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final useMock = ApiConfig.useMock;
+    // flutter_test stubs HttpClient with 400 — force mock under test bindings.
+    final underTest = WidgetsBinding.instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    final useMock = ApiConfig.useMock || underTest;
     final dio = DioClient();
     final CatalogRepository catalog = useMock
         ? MockCatalogRepository()
@@ -51,11 +56,20 @@ class AppScope extends StatelessWidget {
               return out;
             },
           );
-    final properties = PropertiesRepository(prefs);
+    final PropertiesRepository properties = useMock
+        ? LocalPropertiesRepository(prefs)
+        : RemotePropertiesRepository(dio, prefs);
     final orders = OrdersRepository(prefs);
-    final renovation = LocalRenovationRepository(prefs);
-    final services = LocalServicesRepository();
-    final loyalty = DemoLoyaltyRepository();
+    final localRenovation = LocalRenovationRepository(prefs);
+    final RenovationRepository renovation = useMock
+        ? localRenovation
+        : RemoteRenovationRepository(dio, localRenovation);
+    final ServicesRepository services =
+        useMock ? LocalServicesRepository() : RemoteServicesRepository(dio);
+    final LoyaltyRepository loyalty =
+        useMock ? DemoLoyaltyRepository() : RemoteLoyaltyRepository(dio);
+    final ProfileRepository profile =
+        useMock ? DemoProfileRepository() : RemoteProfileRepository(dio);
 
     return MultiRepositoryProvider(
       providers: [
@@ -69,6 +83,7 @@ class AppScope extends StatelessWidget {
         RepositoryProvider<RenovationRepository>.value(value: renovation),
         RepositoryProvider<ServicesRepository>.value(value: services),
         RepositoryProvider<LoyaltyRepository>.value(value: loyalty),
+        RepositoryProvider<ProfileRepository>.value(value: profile),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -80,7 +95,7 @@ class AppScope extends StatelessWidget {
           ),
           BlocProvider(create: (_) => CatalogCubit(catalog)..load()),
           BlocProvider(create: (_) => PropertiesCubit(properties)),
-          BlocProvider(create: (_) => OrdersCubit(orders)),
+          BlocProvider(create: (_) => OrdersCubit(orders, commerce: commerce)),
           BlocProvider(
             create: (_) => ProjectsCubit(renovation)..load(),
           ),

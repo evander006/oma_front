@@ -7,9 +7,15 @@ import 'package:oma/shared/models/room_item.dart';
 import 'package:uuid/uuid.dart';
 
 class PropertiesState extends Equatable {
-  const PropertiesState({this.properties = const []});
+  const PropertiesState({
+    this.properties = const [],
+    this.loading = false,
+    this.error,
+  });
 
   final List<Property> properties;
+  final bool loading;
+  final String? error;
 
   Property? get selected {
     try {
@@ -22,16 +28,26 @@ class PropertiesState extends Equatable {
   bool get hasProperty => properties.isNotEmpty;
 
   @override
-  List<Object?> get props => [properties];
+  List<Object?> get props => [properties, loading, error];
 }
 
 class PropertiesCubit extends Cubit<PropertiesState> {
   PropertiesCubit(this._repo) : super(const PropertiesState()) {
-    emit(PropertiesState(properties: _repo.load()));
+    load();
   }
 
   final PropertiesRepository _repo;
   static const _uuid = Uuid();
+
+  Future<void> load() async {
+    emit(PropertiesState(properties: state.properties, loading: true));
+    try {
+      final list = await _repo.load();
+      emit(PropertiesState(properties: list));
+    } catch (e) {
+      emit(PropertiesState(properties: state.properties, error: '$e'));
+    }
+  }
 
   Future<void> _persist(List<Property> list) async {
     emit(PropertiesState(properties: list));
@@ -47,7 +63,7 @@ class PropertiesCubit extends Cubit<PropertiesState> {
     double? budgetByn,
     String? goal,
   }) async {
-    final draft = _repo.createDraft(
+    final draft = await _repo.createDraft(
       name: name,
       type: type,
       address: address,
@@ -58,20 +74,29 @@ class PropertiesCubit extends Cubit<PropertiesState> {
       isDraft: false,
     );
     final cleared = state.properties
+        .where((p) => p.id != draft.id)
         .map((p) => p.copyWith(selected: false))
         .toList();
     final property = draft.copyWith(selected: true, isDraft: false);
     await _persist([property, ...cleared]);
-    return property;
+    // Reload to merge server truth (ids/rooms) when remote.
+    await load();
+    return state.properties.firstWhere(
+      (p) => p.id == property.id,
+      orElse: () => property,
+    );
   }
 
   Future<Property> addDraft({
     required String name,
     required PropertyType type,
   }) async {
-    final draft = _repo.createDraft(name: name, type: type, isDraft: true);
-    await _persist([draft, ...state.properties]);
-    return draft;
+    final draft = await _repo.createDraft(name: name, type: type, isDraft: true);
+    final cleared =
+        state.properties.map((p) => p.copyWith(selected: false)).toList();
+    await _persist([draft.copyWith(selected: true), ...cleared]);
+    await load();
+    return state.selected ?? draft;
   }
 
   Future<void> upsert(Property property) async {
@@ -85,9 +110,14 @@ class PropertiesCubit extends Cubit<PropertiesState> {
   }
 
   Future<void> addRoom(String propertyId, Room room) async {
+    final created = await _repo.createRoom(
+      propertyId: propertyId,
+      name: room.name,
+      kind: room.kind,
+    );
     final list = state.properties.map((p) {
       if (p.id != propertyId) return p;
-      return p.copyWith(rooms: [...p.rooms, room]);
+      return p.copyWith(rooms: [...p.rooms, created]);
     }).toList();
     await _persist(list);
   }
@@ -113,6 +143,12 @@ class PropertiesCubit extends Cubit<PropertiesState> {
     required String name,
     int qty = 1,
   }) async {
+    try {
+      await _repo.addPlacement(roomId: roomId, productId: productId);
+    } catch (_) {
+      // Keep local item even if placement API fails.
+    }
+
     final list = state.properties.map((p) {
       if (p.id != propertyId) return p;
       final rooms = p.rooms.map((r) {
@@ -147,5 +183,10 @@ class PropertiesCubit extends Cubit<PropertiesState> {
       );
     }).toList();
     await _persist(list);
+  }
+
+  Future<void> removeProperty(String id) async {
+    await _repo.deleteProperty(id);
+    await _persist(state.properties.where((p) => p.id != id).toList());
   }
 }

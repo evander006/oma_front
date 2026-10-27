@@ -89,8 +89,27 @@ class _AiDesignFlowScreenState extends State<AiDesignFlowScreen> {
 
       final ai = context.read<AiChatRepository>();
       final catalog = context.read<CatalogRepository>();
-      final result = await ai.chat(message: message);
+      final budgetDigits = RegExp(r'(\d[\d\s]*)')
+          .allMatches(_budget ?? '')
+          .map((m) => double.tryParse(m.group(1)!.replaceAll(' ', '')))
+          .whereType<double>()
+          .toList();
+      final result = await ai.recommend(
+        prompt: message,
+        preferredStyle: _style,
+        maxBudget: budgetDigits.isEmpty ? null : budgetDigits.last,
+        categoryIds: _categories.toList(),
+      );
       var products = result.products;
+      if (products.isEmpty) {
+        // Fallback: chat, then catalog page — never invent products.
+        final chat = await ai.chat(
+          message: message,
+          budget: budgetDigits.isEmpty ? null : budgetDigits.last,
+          style: _style,
+        );
+        products = chat.products;
+      }
       if (products.isEmpty) {
         products = await catalog.products(pageSize: 6);
       }

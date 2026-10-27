@@ -64,6 +64,34 @@ GoRouter buildRouter() {
         builder: (context, state) => const AiDesignFlowScreen(),
       ),
       GoRoute(
+        path: '/ai/room/:propertyId/:roomId',
+        builder: (context, state) => AiChatScreen(
+          propertyId: state.pathParameters['propertyId']!,
+          roomId: state.pathParameters['roomId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/room/:propertyId/:roomId/3d',
+        builder: (context, state) => Room3dScreen(
+          propertyId: state.pathParameters['propertyId']!,
+          roomId: state.pathParameters['roomId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/product/:productId',
+        builder: (context, state) => ProductScreen(
+          productId: state.pathParameters['productId']!,
+        ),
+        routes: [
+          GoRoute(
+            path: 'install',
+            builder: (context, state) => InstallationFlowScreen(
+              productId: state.pathParameters['productId']!,
+            ),
+          ),
+        ],
+      ),
+      GoRoute(
         path: AppRoutes.turnkey,
         builder: (context, state) => const TurnkeyWizardScreen(),
       ),
@@ -107,22 +135,6 @@ GoRouter buildRouter() {
               GoRoute(
                 path: AppRoutes.catalog,
                 builder: (context, state) => const CatalogScreen(),
-                routes: [
-                  GoRoute(
-                    path: 'product/:productId',
-                    builder: (context, state) => ProductScreen(
-                      productId: state.pathParameters['productId']!,
-                    ),
-                    routes: [
-                      GoRoute(
-                        path: 'install',
-                        builder: (context, state) => InstallationFlowScreen(
-                          productId: state.pathParameters['productId']!,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
               ),
             ],
           ),
@@ -188,20 +200,6 @@ GoRouter buildRouter() {
                           GoRoute(
                             path: 'edit',
                             builder: (context, state) => RoomEditScreen(
-                              propertyId: state.pathParameters['propertyId']!,
-                              roomId: state.pathParameters['roomId']!,
-                            ),
-                          ),
-                          GoRoute(
-                            path: 'ai',
-                            builder: (context, state) => AiChatScreen(
-                              propertyId: state.pathParameters['propertyId']!,
-                              roomId: state.pathParameters['roomId']!,
-                            ),
-                          ),
-                          GoRoute(
-                            path: '3d',
-                            builder: (context, state) => Room3dScreen(
                               propertyId: state.pathParameters['propertyId']!,
                               roomId: state.pathParameters['roomId']!,
                             ),

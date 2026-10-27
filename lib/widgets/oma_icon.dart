@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 class OmaIcon extends StatelessWidget {
-  const OmaIcon(this.asset, {required this.size, super.key});
+  const OmaIcon(this.asset, {required this.size, this.color, super.key});
 
   final String asset;
   final double size;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +18,9 @@ class OmaIcon extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.contain,
+        colorFilter: color == null
+            ? null
+            : ColorFilter.mode(color!, BlendMode.srcIn),
       ),
     );
   }
@@ -76,8 +80,8 @@ class OmaLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const SizedBox(
-      width: 52,
-      height: 24,
+      width: 54,
+      height: 26,
       child: ClipRect(
         child: Stack(
           clipBehavior: Clip.hardEdge,
@@ -88,7 +92,7 @@ class OmaLogo extends StatelessWidget {
               width: 400,
               height: 868,
               child: Image(
-                image: AssetImage('assets/images/logo_source.png'),
+                image: AssetImage('assets/images/home/logo_source.png'),
                 fit: BoxFit.fill,
                 width: 400,
                 height: 868,

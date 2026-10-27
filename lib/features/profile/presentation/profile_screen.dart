@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oma/app/router/app_routes.dart';
+import 'package:oma/core/network/api_config.dart';
+import 'package:oma/core/repositories/profile_repository.dart';
 import 'package:oma/features/my_home/cubit/properties_cubit.dart';
 import 'package:oma/features/my_home/presentation/widgets/dom_widgets.dart';
 import 'package:oma/features/orders/cubit/orders_cubit.dart';
@@ -22,27 +24,44 @@ class ProfileScreen extends StatelessWidget {
     return OmaPage(
       header: const OmaDomHeader(title: 'Профиль'),
       children: [
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: OmaColors.blueSoft,
-              child: Icon(Icons.person_outline, color: OmaColors.blue, size: 28),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Анна Ковалёва', style: OmaType.bold(16, OmaColors.black)),
-                  Text(
-                    '+375 (29) •••-••-48',
-                    style: OmaType.regular(13, OmaColors.muted),
+        FutureBuilder<UserProfile>(
+          future: context.read<ProfileRepository>().me(),
+          builder: (context, snap) {
+            final me = snap.data;
+            return Row(
+              children: [
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: OmaColors.blueSoft,
+                  child: Icon(
+                    Icons.person_outline,
+                    color: OmaColors.blue,
+                    size: 28,
                   ),
-                ],
-              ),
-            ),
-          ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        me?.displayName ?? 'Загрузка…',
+                        style: OmaType.bold(16, OmaColors.black),
+                      ),
+                      Text(
+                        me == null
+                            ? ApiConfig.baseUrl
+                            : me.isDemo
+                                ? '${me.email} · демо-пользователь API'
+                                : me.email,
+                        style: OmaType.regular(13, OmaColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
         DomCard(
           child: Column(

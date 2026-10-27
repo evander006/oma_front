@@ -20,8 +20,11 @@ abstract final class AppRoutes {
   static const propertyLayout = '/profile/property/:propertyId/layout';
   static const room = '/profile/property/:propertyId/room/:roomId';
   static const roomEdit = '/profile/property/:propertyId/room/:roomId/edit';
-  static const roomAi = '/profile/property/:propertyId/room/:roomId/ai';
-  static const room3d = '/profile/property/:propertyId/room/:roomId/3d';
+  /// Top-level (outside shell) to avoid Navigator/Hero key clashes when
+  /// opening chat from `/ai-design` and other root routes.
+  static const roomAi = '/ai/room/:propertyId/:roomId';
+  /// Top-level — same shell/root Navigator clash as room AI chat.
+  static const room3d = '/room/:propertyId/:roomId/3d';
   static const roomSuggestions =
       '/profile/property/:propertyId/room/:roomId/suggestions';
   static const roomMissing =
@@ -30,8 +33,9 @@ abstract final class AppRoutes {
       '/profile/property/:propertyId/room/:roomId/purchases';
   static const roomSaved = '/profile/property/:propertyId/room/:roomId/saved';
 
-  static const product = '/catalog/product/:productId';
-  static const installation = '/catalog/product/:productId/install';
+  /// Top-level detail routes — safe to push from AI / shell / root stacks.
+  static const product = '/product/:productId';
+  static const installation = '/product/:productId/install';
   static const orders = '/profile/orders';
   static const loyalty = '/profile/loyalty';
 
@@ -51,9 +55,9 @@ abstract final class AppRoutes {
   static String roomEditPath(String propertyId, String roomId) =>
       '/profile/property/$propertyId/room/$roomId/edit';
   static String roomAiPath(String propertyId, String roomId) =>
-      '/profile/property/$propertyId/room/$roomId/ai';
+      '/ai/room/$propertyId/$roomId';
   static String room3dPath(String propertyId, String roomId) =>
-      '/profile/property/$propertyId/room/$roomId/3d';
+      '/room/$propertyId/$roomId/3d';
   static String roomSuggestionsPath(String propertyId, String roomId) =>
       '/profile/property/$propertyId/room/$roomId/suggestions';
   static String roomMissingPath(String propertyId, String roomId) =>
@@ -62,8 +66,8 @@ abstract final class AppRoutes {
       '/profile/property/$propertyId/room/$roomId/purchases';
   static String roomSavedPath(String propertyId, String roomId) =>
       '/profile/property/$propertyId/room/$roomId/saved';
-  static String productPath(String id) => '/catalog/product/$id';
-  static String installPath(String id) => '/catalog/product/$id/install';
+  static String productPath(String id) => '/product/$id';
+  static String installPath(String id) => '/product/$id/install';
   static String turnkeyPath(String id) => '/services/turnkey/$id';
   static String serviceBookPath(String id) => '/services/book/$id';
   static String projectPath(String id) => '/projects/$id';

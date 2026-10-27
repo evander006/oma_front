@@ -49,6 +49,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
       final result = await repo.chat(
         message: text,
         sessionId: _sessionId,
+        roomId: int.tryParse(widget.roomId),
       );
       if (!mounted) return;
       setState(() {

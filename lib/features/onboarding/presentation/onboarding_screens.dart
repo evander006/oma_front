@@ -174,7 +174,7 @@ class _OnboardingHousingScreenState extends State<OnboardingHousingScreen> {
       header: const OmaDomHeader(title: 'Настройка дома'),
       actions: [
         OmaButton(
-          label: 'Далее — фото и планировка',
+          label: 'Далее: фото и планировка',
           onPressed: () =>
               context.push(AppRoutes.onboardingPhotos, extra: _draft()),
         ),
@@ -288,7 +288,7 @@ class OnboardingPhotosScreen extends StatelessWidget {
           onPressed: () {},
         ),
         OmaButton(
-          label: 'Далее — потребности',
+          label: 'Далее: потребности',
           onPressed: () => context.push(AppRoutes.onboardingNeeds, extra: d),
         ),
         OmaButton(

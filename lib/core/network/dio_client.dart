@@ -47,6 +47,19 @@ class DioClient {
     }
   }
 
+  Future<T> patch<T>(
+    String path, {
+    Object? data,
+    T Function(dynamic data)? parser,
+  }) async {
+    try {
+      final res = await _dio.patch<dynamic>(path, data: data);
+      return parser != null ? parser(res.data) : res.data as T;
+    } on DioException catch (e) {
+      throw _map(e);
+    }
+  }
+
   Future<T> delete<T>(
     String path, {
     T Function(dynamic data)? parser,

@@ -8,6 +8,7 @@ class HomeService extends Equatable {
     this.description,
     this.priceFromByn,
     this.unitHint,
+    this.priceVerified = false,
     this.relatedCategoryIds = const [],
   });
 
@@ -17,14 +18,20 @@ class HomeService extends Equatable {
   final String? description;
   final double? priceFromByn;
   final String? unitHint;
+  final bool priceVerified;
   final List<String> relatedCategoryIds;
 
   String get priceLabel {
-    if (priceFromByn == null) return 'Стоимость уточняется';
+    if (!priceVerified || priceFromByn == null) {
+      if (priceFromByn != null) {
+        return 'от ${priceFromByn!.toStringAsFixed(0)} BYN · стоимость уточняется';
+      }
+      return 'Стоимость уточняется';
+    }
     return 'от ${priceFromByn!.toStringAsFixed(0)} BYN';
   }
 
-  bool get hasVerifiedPrice => priceFromByn != null;
+  bool get hasVerifiedPrice => priceVerified && priceFromByn != null;
 
   @override
   List<Object?> get props => [id, title, category, priceFromByn];

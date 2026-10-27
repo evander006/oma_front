@@ -3,15 +3,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oma/app/router/app_routes.dart';
 import 'package:oma/core/repositories/loyalty_repository.dart';
+import 'package:oma/core/repositories/services_repository.dart';
 import 'package:oma/features/catalog/cubit/catalog_cubit.dart';
 import 'package:oma/features/projects/cubit/projects_cubit.dart';
 import 'package:oma/shared/models/loyalty.dart';
 import 'package:oma/shared/models/renovation_request.dart';
-import 'package:oma/shared/widgets/product_card.dart';
 import 'package:oma/theme/oma_icons.dart';
 import 'package:oma/theme/oma_theme.dart';
 import 'package:oma/widgets/oma_chrome.dart';
-import 'package:oma/widgets/oma_controls.dart';
 import 'package:oma/widgets/oma_icon.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -24,57 +23,129 @@ class HomeScreen extends StatelessWidget {
     for (final p in projects) {
       if (p.status == RenovationProjectStatus.inProgress ||
           p.status == RenovationProjectStatus.scheduled ||
-          p.status == RenovationProjectStatus.submitted) {
+          p.status == RenovationProjectStatus.submitted ||
+          p.status == RenovationProjectStatus.draft) {
         active = p;
         break;
       }
     }
     active ??= projects.isEmpty ? null : projects.first;
-    final catalog = context.watch<CatalogCubit>().state;
-    final products = catalog.products.take(4).toList();
 
     return OmaPage(
       header: const OmaHomeHeader(),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
       children: [
-        OmaSearchBar(onTap: () => context.go(AppRoutes.catalog)),
-        const _HeroTurnkeyCard(),
-        const _SecondaryServicesGrid(),
-        const _StartHereSection(),
-        if (active != null) _ActiveProjectCard(project: active),
-        _LoyaltyStrip(
-          future: context.read<LoyaltyRepository>().account(),
-        ),
-        OmaSectionHeader(
-          title: 'Популярные услуги',
-          action: 'Все',
-          onAction: () => context.go(AppRoutes.services),
-        ),
-        const _PopularServices(),
-        OmaSectionHeader(
-          title: 'Категории и материалы',
-          action: 'Каталог',
-          onAction: () => context.go(AppRoutes.catalog),
-        ),
-        const _CategoryRow(),
-        if (products.isNotEmpty) ...[
-          OmaSectionHeader(
-            title: 'Рекомендуемые материалы',
-            action: 'Ещё',
-            onAction: () => context.go(AppRoutes.catalog),
-          ),
-          for (final p in products)
-            ProductCard(
-              product: p,
-              onTap: () => context.push(AppRoutes.productPath(p.id)),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Минск, Лесная, 12 ⌄',
+              style: OmaType.bold(11, OmaColors.blue).copyWith(
+                letterSpacing: 0.2,
+              ),
             ),
-        ],
-        const _RoomBundles(),
-        OmaSectionHeader(
-          title: 'Акции и сезонные предложения',
-          action: null,
+            const SizedBox(height: 20),
+            Text(
+              'Дом, в котором хорошо',
+              style: OmaType.bold(28, OmaColors.ink).copyWith(height: 1.15),
+            ),
+            const SizedBox(height: 20),
+            const _HomeSearchField(),
+            const SizedBox(height: 20),
+            const _HeroTurnkeyCard(),
+            const SizedBox(height: 20),
+            const _QuickScenarioRow(),
+            const SizedBox(height: 20),
+            const _SecondaryLinksCard(),
+            const SizedBox(height: 20),
+            Text(
+              'С чего начнём?',
+              style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+            ),
+            const SizedBox(height: 20),
+            const _StartChips(),
+            const SizedBox(height: 20),
+            Text(
+              'Продолжим ваш ремонт',
+              style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+            ),
+            const SizedBox(height: 20),
+            if (active != null)
+              _ActiveProjectCard(project: active)
+            else
+              const _ActiveProjectPlaceholder(),
+            const SizedBox(height: 20),
+            Text(
+              'Популярные услуги',
+              style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+            ),
+            const SizedBox(height: 20),
+            const _PopularServicesCard(),
+            const SizedBox(height: 20),
+            Text(
+              'Материалы для ваших идей',
+              style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+            ),
+            const SizedBox(height: 20),
+            const _MaterialChips(),
+            const SizedBox(height: 20),
+            const _KitchenPickCard(),
+            const SizedBox(height: 20),
+            Text(
+              'Готовые решения для комнат',
+              style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+            ),
+            const SizedBox(height: 20),
+            const _RoomBundleBlock(),
+            const SizedBox(height: 20),
+            _LoyaltyCard(
+              future: context.read<LoyaltyRepository>().account(),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Дом готов к новому сезону',
+              style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+            ),
+            const SizedBox(height: 20),
+            const _SeasonCard(),
+            const SizedBox(height: 20),
+            const _BottomCta(),
+          ],
         ),
-        const _PromoBanners(),
       ],
+    );
+  }
+}
+
+class _HomeSearchField extends StatelessWidget {
+  const _HomeSearchField();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: OmaColors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => context.go(AppRoutes.catalog),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              const OmaIcon(OmaIcons.searchHome, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Товары, услуги и идеи для дома',
+                  style: OmaType.regular(15, OmaColors.muted).copyWith(
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -84,63 +155,138 @@ class _HeroTurnkeyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: OmaColors.blueDark,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 200,
+              width: double.infinity,
+              child: Image.asset(
+                OmaImages.homeHeroRoom,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: 200,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'ОТ ИДЕИ ДО НОВОГО ДОМА',
+                    style: OmaType.bold(11, OmaColors.orange),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Ремонт под ключ',
+                    style: OmaType.bold(32, OmaColors.white).copyWith(
+                      height: 1.08,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Расскажите о квартире, соберите заявку на ремонт, материалы и помощь с обустройством.',
+                    style: OmaType.regular(15, OmaColors.white).copyWith(
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const _RedCartButton(),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Предварительно, условия уточняются',
+                    style: OmaType.regular(13, OmaColors.white).copyWith(
+                      height: 1.45,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickScenarioRow extends StatelessWidget {
+  const _QuickScenarioRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _ScenarioCard(
+            icon: OmaIcons.wrench,
+            title: 'Отдельные ремонтные работы',
+            action: 'Выбрать услугу',
+            onTap: () => context.go(AppRoutes.services),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _ScenarioCard(
+            icon: OmaIcons.sparkles,
+            title: 'ИИ-дизайнер по фото',
+            action: 'Попробовать',
+            onTap: () => context.push(AppRoutes.aiDesign),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScenarioCard extends StatelessWidget {
+  const _ScenarioCard({
+    required this.icon,
+    required this.title,
+    required this.action,
+    required this.onTap,
+  });
+
+  final String icon;
+  final String title;
+  final String action;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     return Material(
-      color: OmaColors.blue,
-      borderRadius: BorderRadius.circular(OmaRadius.lg),
+      color: OmaColors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: OmaColors.line),
+      ),
       child: InkWell(
-        onTap: () => context.push(AppRoutes.turnkey),
-        borderRadius: BorderRadius.circular(OmaRadius.lg),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
         child: Padding(
-          padding: const EdgeInsets.all(OmaSpace.md),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: OmaColors.orange,
-                  borderRadius: BorderRadius.circular(OmaRadius.pill),
-                ),
-                child: Text(
-                  'Главный сценарий',
-                  style: OmaType.semibold(11, OmaColors.ink),
+              OmaIcon(icon, size: 22),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: OmaType.semibold(15, OmaColors.ink).copyWith(
+                  height: 1.45,
                 ),
               ),
-              const SizedBox(height: OmaSpace.sm),
+              const SizedBox(height: 12),
               Text(
-                'Ремонт под ключ',
-                style: OmaType.bold(22, OmaColors.white),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'От замера до сдачи: материалы OMA, мастера и сопровождение проекта.',
-                style: OmaType.regular(13, OmaColors.white.withValues(alpha: 0.9)),
-              ),
-              const SizedBox(height: OmaSpace.md),
-              SizedBox(
-                width: double.infinity,
-                child: Material(
-                  color: OmaColors.orange,
-                  borderRadius: BorderRadius.circular(OmaRadius.sm),
-                  child: InkWell(
-                    onTap: () => context.push(AppRoutes.turnkey),
-                    borderRadius: BorderRadius.circular(OmaRadius.sm),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      child: Text(
-                        'Рассчитать стоимость',
-                        textAlign: TextAlign.center,
-                        style: OmaType.bold(15, OmaColors.ink),
-                      ),
-                    ),
-                  ),
+                action,
+                style: OmaType.regular(13, OmaColors.blue).copyWith(
+                  height: 1.45,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Предварительная оценка · не является коммерческим предложением',
-                style: OmaType.regular(11, OmaColors.white.withValues(alpha: 0.75)),
               ),
             ],
           ),
@@ -150,105 +296,42 @@ class _HeroTurnkeyCard extends StatelessWidget {
   }
 }
 
-class _SecondaryServicesGrid extends StatelessWidget {
-  const _SecondaryServicesGrid();
+class _SecondaryLinksCard extends StatelessWidget {
+  const _SecondaryLinksCard();
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (
-        'Отдельные ремонтные работы',
-        Icons.handyman_outlined,
-        () => context.go(AppRoutes.services),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: OmaColors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: OmaColors.line),
       ),
-      (
-        'ИИ-дизайнер по фото',
-        Icons.auto_awesome_outlined,
-        () => context.push(AppRoutes.aiDesign),
-      ),
-      (
-        'Подбор материалов',
-        Icons.grid_view_outlined,
-        () => context.go(AppRoutes.catalog),
-      ),
-      (
-        'Вызвать замерщика',
-        Icons.straighten_outlined,
-        () => context.push(AppRoutes.measurer),
-      ),
-    ];
-
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 1.55,
-      children: [
-        for (final item in items)
-          OmaSurfaceCard(
-            padding: const EdgeInsets.all(12),
-            onTap: item.$3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(item.$2, color: OmaColors.blue, size: 22),
-                const Spacer(),
-                Text(
-                  item.$1,
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: OmaType.semibold(13, OmaColors.ink),
-                ),
-              ],
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _LinkBlock(
+              title: 'Подбор материалов',
+              subtitle: 'Список покупок под вашу задачу',
+              onTap: () => context.go(AppRoutes.catalog),
             ),
-          ),
-      ],
-    );
-  }
-}
-
-class _StartHereSection extends StatelessWidget {
-  const _StartHereSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('С чего начнём?', style: OmaType.bold(18, OmaColors.ink)),
-        const SizedBox(height: 10),
-        OmaSurfaceCard(
-          child: Column(
-            children: [
-              _StartRow(
-                title: 'Нужен полный ремонт',
-                subtitle: 'Мастер-заявка под ключ',
-                onTap: () => context.push(AppRoutes.turnkey),
-              ),
-              const Divider(height: 20),
-              _StartRow(
-                title: 'Хочу обновить одну комнату',
-                subtitle: 'ИИ-дизайн + товары из каталога',
-                onTap: () => context.push(AppRoutes.aiDesign),
-              ),
-              const Divider(height: 20),
-              _StartRow(
-                title: 'Нужна только установка',
-                subtitle: 'Отдельные услуги мастеров',
-                onTap: () => context.go(AppRoutes.services),
-              ),
-            ],
-          ),
+            const SizedBox(height: 12),
+            _LinkBlock(
+              title: 'Вызвать замерщика',
+              subtitle: 'Оставить запрос, условия уточняются',
+              onTap: () => context.push(AppRoutes.measurer),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
 
-class _StartRow extends StatelessWidget {
-  const _StartRow({
+class _LinkBlock extends StatelessWidget {
+  const _LinkBlock({
     required this.title,
     required this.subtitle,
     required this.onTap,
@@ -262,21 +345,68 @@ class _StartRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: OmaType.semibold(14, OmaColors.ink)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: OmaType.regular(12, OmaColors.muted)),
-              ],
-            ),
+          Text(
+            title,
+            style: OmaType.regular(15, OmaColors.ink).copyWith(height: 1.6),
           ),
-          const OmaIcon(OmaIcons.chevronRight, size: 20),
+          Text(
+            subtitle,
+            style: OmaType.regular(15, OmaColors.ink).copyWith(height: 1.6),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _StartChips extends StatefulWidget {
+  const _StartChips();
+
+  @override
+  State<_StartChips> createState() => _StartChipsState();
+}
+
+class _StartChipsState extends State<_StartChips> {
+  int selected = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('✓ Ремонт всей квартиры', () => context.push(AppRoutes.turnkey)),
+      ('Обновить комнату', () => context.push(AppRoutes.aiDesign)),
+      ('Найти товар', () => context.go(AppRoutes.catalog)),
+      ('Нужен совет', () => context.push(AppRoutes.aiDesign)),
+    ];
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          GestureDetector(
+            onTap: () {
+              setState(() => selected = i);
+              items[i].$2();
+            },
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              height: 44,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  items[i].$1,
+                  style: (selected == i
+                          ? OmaType.bold(13, OmaColors.blue)
+                          : OmaType.medium(13, OmaColors.muted))
+                      .copyWith(height: 1.0),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -288,48 +418,418 @@ class _ActiveProjectCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OmaSurfaceCard(
-      onTap: () => context.push(AppRoutes.projectPath(project.id)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final step = _stepOf(project.status);
+    final total = 10;
+    final progress = step / total;
+
+    return Material(
+      color: OmaColors.blueSoft,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: () => context.push(AppRoutes.projectPath(project.id)),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Text(
-                  'Активный проект',
-                  style: OmaType.semibold(12, OmaColors.blue),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: OmaColors.blueSoft,
+                    borderRadius: BorderRadius.circular(40),
+                  ),
+                  child: Text(
+                    project.status.labelRu,
+                    style: OmaType.semibold(12, OmaColors.blue),
+                  ),
                 ),
               ),
-              OmaBadge(label: project.status.labelRu),
+              const SizedBox(height: 12),
+              Text(
+                project.displayName,
+                style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Анкета заполнена на ${(progress * 100).round()}%. '
+                'Остались сроки, материалы и контакты.',
+                style: OmaType.regular(15, OmaColors.muted).copyWith(
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '$step из $total шагов',
+                style: OmaType.semibold(13, OmaColors.blue).copyWith(
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 9),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: LinearProgressIndicator(
+                  value: progress.clamp(0.08, 1.0),
+                  minHeight: 5,
+                  backgroundColor: OmaColors.line,
+                  color: OmaColors.blue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 50,
+                child: Center(
+                  child: Text(
+                    'Продолжить с шага ${step + 1 > total ? total : step + 1}',
+                    style: OmaType.semibold(15, OmaColors.blue),
+                  ),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(project.displayName, style: OmaType.bold(16, OmaColors.ink)),
-          if (project.address != null) ...[
-            const SizedBox(height: 4),
-            Text(project.address!, style: OmaType.regular(13, OmaColors.muted)),
-          ],
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: _progress(project.status),
-            backgroundColor: OmaColors.line,
-            color: OmaColors.blue,
-            borderRadius: BorderRadius.circular(4),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  double _progress(RenovationProjectStatus s) {
+  int _stepOf(RenovationProjectStatus s) {
     final i = RenovationProjectStatus.values.indexOf(s);
-    return ((i + 1) / RenovationProjectStatus.values.length).clamp(0.1, 1.0);
+    return ((i + 1) * 10 / RenovationProjectStatus.values.length)
+        .round()
+        .clamp(1, 10);
   }
 }
 
-class _LoyaltyStrip extends StatelessWidget {
-  const _LoyaltyStrip({required this.future});
+class _ActiveProjectPlaceholder extends StatelessWidget {
+  const _ActiveProjectPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: OmaColors.blueSoft,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: () => context.push(AppRoutes.turnkey),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: OmaColors.blueSoft,
+                    borderRadius: BorderRadius.circular(40),
+                  ),
+                  child: Text(
+                    'Черновик',
+                    style: OmaType.semibold(12, OmaColors.blue),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Квартира на Лесной',
+                style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Анкета заполнена на 60%. Остались сроки, материалы и контакты.',
+                style: OmaType.regular(15, OmaColors.muted).copyWith(
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '6 из 10 шагов',
+                style: OmaType.semibold(13, OmaColors.blue).copyWith(
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 9),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: const LinearProgressIndicator(
+                  value: 0.6,
+                  minHeight: 5,
+                  backgroundColor: OmaColors.line,
+                  color: OmaColors.blue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 50,
+                child: Center(
+                  child: Text(
+                    'Продолжить с шага 7',
+                    style: OmaType.semibold(15, OmaColors.blue),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PopularServicesCard extends StatelessWidget {
+  const _PopularServicesCard();
+
+  static const _fallback = [
+    ('Сантехника', 'Замена смесителя и другие работы'),
+    ('Электрика', 'Розетки, проводка, освещение'),
+    ('Покраска и поклейка обоев', 'Обновление стен'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder(
+      future: context.read<ServicesRepository>().all(),
+      builder: (context, snap) {
+        final services = snap.data ?? const [];
+        final rows = services.isEmpty
+            ? _fallback
+            : services
+                .take(3)
+                .map(
+                  (s) => (
+                    s.title,
+                    (s.description == null || s.description!.isEmpty)
+                        ? s.priceLabel
+                        : s.description!,
+                  ),
+                )
+                .toList();
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: OmaColors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: OmaColors.line),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < rows.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () {
+                      if (services.length > i) {
+                        context.push(
+                          AppRoutes.serviceBookPath(services[i].id),
+                        );
+                      } else {
+                        context.go(AppRoutes.services);
+                      }
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          rows[i].$1,
+                          style: OmaType.regular(15, OmaColors.ink)
+                              .copyWith(height: 1.6),
+                        ),
+                        Text(
+                          rows[i].$2,
+                          style: OmaType.regular(15, OmaColors.ink)
+                              .copyWith(height: 1.6),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: () => context.go(AppRoutes.services),
+                  child: Text(
+                    'Все услуги',
+                    style: OmaType.regular(15, OmaColors.ink).copyWith(
+                      height: 1.6,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MaterialChips extends StatelessWidget {
+  const _MaterialChips();
+
+  static const _defaults = [
+    'Интерьер и отделка',
+    'Напольные покрытия',
+    'Лакокрасочные материалы',
+    'Плитка',
+    'Обои',
+    'Сантехника',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = context.watch<CatalogCubit>().state.categories;
+    final labels = cats.isEmpty
+        ? _defaults
+        : cats.take(6).map((c) => c.name).toList();
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        for (var i = 0; i < labels.length; i++)
+          GestureDetector(
+            onTap: () {
+              if (cats.length > i) {
+                context.read<CatalogCubit>().setCategory(cats[i].id);
+              }
+              context.go(AppRoutes.catalog);
+            },
+            behavior: HitTestBehavior.opaque,
+            child: SizedBox(
+              height: 44,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  labels[i],
+                  style: OmaType.medium(13, OmaColors.muted),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _KitchenPickCard extends StatelessWidget {
+  const _KitchenPickCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: OmaColors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: OmaColors.line),
+      ),
+      child: InkWell(
+        onTap: () => context.go(AppRoutes.catalog),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Для кухни Анны',
+                style: OmaType.regular(15, OmaColors.ink).copyWith(height: 1.6),
+              ),
+              Text(
+                'Графитовая сантехника, свет и хранение',
+                style: OmaType.regular(15, OmaColors.ink).copyWith(height: 1.6),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Подбор категорий, цены и наличие уточняются',
+                style: OmaType.regular(13, OmaColors.muted).copyWith(
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoomBundleBlock extends StatelessWidget {
+  const _RoomBundleBlock();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: AspectRatio(
+            aspectRatio: 360 / 190,
+            child: Image.asset(
+              OmaImages.homeRoomBundle,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: OmaColors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: OmaColors.line),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Кухня в тёплых тонах',
+                  style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Сантехника + свет + хранение. Состав можно изменить под вашу комнату.',
+                  style: OmaType.regular(15, OmaColors.muted).copyWith(
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 50,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () => context.go(AppRoutes.catalog),
+                      child: Text(
+                        'Посмотреть комплект',
+                        style: OmaType.semibold(15, OmaColors.blue),
+                      ),
+                    ),
+                  ),
+                ),
+                Text(
+                  'Концепция, не готовый товарный комплект',
+                  style: OmaType.regular(13, OmaColors.muted).copyWith(
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LoyaltyCard extends StatelessWidget {
+  const _LoyaltyCard({required this.future});
 
   final Future<LoyaltyAccount> future;
 
@@ -339,41 +839,59 @@ class _LoyaltyStrip extends StatelessWidget {
       future: future,
       builder: (context, snap) {
         final account = snap.data;
-        return OmaSurfaceCard(
-          onTap: () => context.push(AppRoutes.loyalty),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: OmaColors.cream,
-                  borderRadius: BorderRadius.circular(OmaRadius.sm),
-                ),
-                child: const Icon(Icons.stars_rounded, color: OmaColors.orange),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      account == null
-                          ? 'Бонусная программа'
-                          : '${account.balance} баллов · ${account.tier}',
-                      style: OmaType.semibold(14, OmaColors.ink),
+        final balance = account?.balance ?? 240;
+        final demo = account?.demo ?? true;
+
+        return Material(
+          color: OmaColors.blueSoft,
+          borderRadius: BorderRadius.circular(20),
+          child: InkWell(
+            onTap: () => context.push(AppRoutes.loyalty),
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: OmaColors.blueSoft,
+                        borderRadius: BorderRadius.circular(40),
+                      ),
+                      child: Text(
+                        demo ? 'БАЛАНС, демо' : 'БАЛАНС',
+                        style: OmaType.semibold(12, OmaColors.blue),
+                      ),
                     ),
-                    Text(
-                      account?.demo == true
-                          ? 'Демо-баланс · правила уточняются'
-                          : 'Персональные предложения',
-                      style: OmaType.regular(12, OmaColors.muted),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '$balance баллов',
+                    style: OmaType.bold(32, OmaColors.blue),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Идеи и предложения для вашего дома. Условия участия в официальной программе.',
+                    style: OmaType.regular(15, OmaColors.muted).copyWith(
+                      height: 1.45,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Моя программа лояльности',
+                    style: OmaType.regular(15, OmaColors.ink).copyWith(
+                      height: 1.6,
+                    ),
+                  ),
+                ],
               ),
-              const OmaIcon(OmaIcons.chevronRight, size: 20),
-            ],
+            ),
           ),
         );
       },
@@ -381,162 +899,89 @@ class _LoyaltyStrip extends StatelessWidget {
   }
 }
 
-class _PopularServices extends StatelessWidget {
-  const _PopularServices();
+class _SeasonCard extends StatelessWidget {
+  const _SeasonCard();
 
   @override
   Widget build(BuildContext context) {
-    const items = [
-      ('Сантехника', 'svc_plumbing'),
-      ('Электромонтаж', 'svc_electro'),
-      ('Укладка плитки', 'svc_tile'),
-      ('Сборка мебели', 'svc_furniture'),
-    ];
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, i) {
-          final item = items[i];
-          return OmaChoiceChip(
-            label: item.$1,
-            selected: false,
-            onTap: () => context.push(AppRoutes.serviceBookPath(item.$2)),
-          );
-        },
+    return Material(
+      color: OmaColors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: OmaColors.line),
+      ),
+      child: InkWell(
+        onTap: () => context.go(AppRoutes.catalog),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const OmaIcon(OmaIcons.lamp, size: 22),
+              const SizedBox(height: 12),
+              Text(
+                'Больше света и уюта',
+                style: OmaType.bold(20, OmaColors.ink).copyWith(height: 1.25),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Подберите освещение, текстиль и товары для хранения к холодному сезону.',
+                style: OmaType.regular(15, OmaColors.muted).copyWith(
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Смотреть сезонную подборку',
+                style: OmaType.regular(15, OmaColors.ink).copyWith(height: 1.6),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Иллюстративная подборка, без заявленных скидок',
+                style: OmaType.regular(13, OmaColors.muted).copyWith(
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-class _CategoryRow extends StatelessWidget {
-  const _CategoryRow();
+class _BottomCta extends StatelessWidget {
+  const _BottomCta();
 
   @override
   Widget build(BuildContext context) {
-    final cats = context.watch<CatalogCubit>().state.categories.take(6).toList();
-    if (cats.isEmpty) {
-      return Text(
-        'Категории загрузятся из каталога',
-        style: OmaType.regular(13, OmaColors.muted),
-      );
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final c in cats)
-          OmaChoiceChip(
-            label: c.name,
-            selected: false,
-            onTap: () {
-              context.read<CatalogCubit>().setCategory(c.id);
-              context.go(AppRoutes.catalog);
-            },
-          ),
-      ],
-    );
+    return const _RedCartButton();
   }
 }
 
-class _RoomBundles extends StatelessWidget {
-  const _RoomBundles();
+class _RedCartButton extends StatelessWidget {
+  const _RedCartButton();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text('Готовые комплекты комнат', style: OmaType.bold(18, OmaColors.ink)),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 140,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              for (final b in [
-                ('Кухня старт', 'Смеситель + мойка + свет'),
-                ('Санузел комфорт', 'Плитка + сантехника'),
-                ('Гостиная свет', 'Освещение + розетки'),
-              ]) ...[
-                SizedBox(
-                  width: 220,
-                  child: OmaSurfaceCard(
-                    onTap: () => context.go(AppRoutes.catalog),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(b.$1, style: OmaType.bold(15, OmaColors.ink)),
-                        const SizedBox(height: 6),
-                        Text(b.$2, style: OmaType.regular(12, OmaColors.muted)),
-                        const Spacer(),
-                        Text(
-                          'Цены из каталога · BYN',
-                          style: OmaType.semibold(12, OmaColors.blue),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-              ],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PromoBanners extends StatelessWidget {
-  const _PromoBanners();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(OmaRadius.sm),
-          child: AspectRatio(
-            aspectRatio: 543 / 214,
-            child: Image.asset(
-              OmaImages.homeHalva,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => ColoredBox(
-                color: OmaColors.blueSoft,
-                child: Center(
-                  child: Text(
-                    'Акция',
-                    style: OmaType.regular(13, OmaColors.muted),
-                  ),
-                ),
-              ),
+    return Align(
+      alignment: Alignment.center,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => context.push(AppRoutes.cart),
+          borderRadius: BorderRadius.circular(28),
+          child: const Padding(
+            padding: EdgeInsets.all(10),
+            child: OmaIcon(
+              OmaIcons.cart,
+              size: 28,
+              color: OmaColors.cartRed,
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(OmaRadius.sm),
-          child: AspectRatio(
-            aspectRatio: 543 / 221,
-            child: Image.asset(
-              OmaImages.homePosuda,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => ColoredBox(
-                color: OmaColors.cream,
-                child: Center(
-                  child: Text(
-                    'Сезонное предложение',
-                    style: OmaType.regular(13, OmaColors.muted),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

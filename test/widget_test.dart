@@ -14,7 +14,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Ремонт под ключ'), findsWidgets);
-    expect(find.text('Рассчитать стоимость'), findsWidgets);
+    expect(find.text('Дом, в котором хорошо'), findsOneWidget);
     expect(find.text('Главная'), findsWidgets);
     expect(find.text('Услуги'), findsWidgets);
     expect(find.text('Мои проекты'), findsWidgets);
