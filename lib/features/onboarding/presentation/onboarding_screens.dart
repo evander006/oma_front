@@ -1,3 +1,11 @@
+import 'dart:typed_data';
+
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:oma/core/network/api_config.dart';
+import 'package:oma/core/network/dio_client.dart';
+import 'package:oma/features/onboarding/domain/onboarding_photo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +25,7 @@ class OnboardingDraft {
     this.rooms,
     this.tenure,
     this.skipped = false,
+    this.photos = const [],
   });
 
   final PropertyType type;
@@ -25,6 +34,7 @@ class OnboardingDraft {
   final int? rooms;
   final PropertyTenure? tenure;
   final bool skipped;
+  final List<OnboardingPhoto> photos;
 
   OnboardingDraft copyWith({
     PropertyType? type,
@@ -33,6 +43,7 @@ class OnboardingDraft {
     int? rooms,
     PropertyTenure? tenure,
     bool? skipped,
+    List<OnboardingPhoto>? photos,
   }) {
     return OnboardingDraft(
       type: type ?? this.type,
@@ -41,6 +52,7 @@ class OnboardingDraft {
       rooms: rooms ?? this.rooms,
       tenure: tenure ?? this.tenure,
       skipped: skipped ?? this.skipped,
+      photos: photos ?? this.photos,
     );
   }
 }
@@ -310,116 +322,191 @@ class _HousingTypeCard extends StatelessWidget {
   }
 }
 
-class OnboardingPhotosScreen extends StatelessWidget {
+class OnboardingPhotosScreen extends StatefulWidget {
   const OnboardingPhotosScreen({super.key});
 
   @override
+  State<OnboardingPhotosScreen> createState() => _OnboardingPhotosScreenState();
+}
+
+class _OnboardingPhotosScreenState extends State<OnboardingPhotosScreen> {
+  final _picker = ImagePicker();
+  final List<OnboardingPhoto> _photos = [];
+  bool _initialized = false;
+  bool _dragging = false;
+  bool _reading = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    final draft = GoRouterState.of(context).extra as OnboardingDraft?;
+    _photos.addAll(draft?.photos ?? const []);
+  }
+
+  void _notify(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _choosePhotos() async {
+    try {
+      final files = await _picker.pickMultiImage();
+      await _addPhotos(files);
+    } catch (error) {
+      _notify('Не удалось открыть выбор фотографий: $error');
+    }
+  }
+
+  Future<void> _addPhotos(List<XFile> files) async {
+    if (files.isEmpty || _reading) return;
+    setState(() => _reading = true);
+    final accepted = [..._photos];
+    final errors = <String>[];
+    for (final file in files) {
+      if (accepted.length >= 5) {
+        errors.add('Можно добавить не более 5 фотографий.');
+        break;
+      }
+      try {
+        final photo = await OnboardingPhoto.fromFile(file);
+        if (accepted.any((item) => item.name == photo.name &&
+            item.bytes.length == photo.bytes.length)) {
+          continue;
+        }
+        accepted.add(photo);
+      } on FormatException catch (error) {
+        errors.add(error.message);
+      } catch (error) {
+        errors.add('Не удалось прочитать файл ${file.name}: $error');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _photos
+        ..clear()
+        ..addAll(accepted);
+      _reading = false;
+      _dragging = false;
+    });
+    if (errors.isNotEmpty) _notify(errors.join(' '));
+  }
+
+  void _next({required bool skip}) {
+    final draft = GoRouterState.of(context).extra as OnboardingDraft?;
+    context.push(
+      AppRoutes.onboardingNeeds,
+      extra: draft?.copyWith(
+        photos: skip ? const [] : List.unmodifiable(_photos),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final d = GoRouterState.of(context).extra as OnboardingDraft?;
     return OmaPage(
       header: const OmaDomHeader(title: 'Настройка дома'),
       actions: [
         OmaButton(
-          label: 'Загрузить другую планировку',
-          kind: OmaButtonKind.secondary,
-          onPressed: () {},
-        ),
-        OmaButton(
           label: 'Далее: потребности',
-          onPressed: () => context.push(AppRoutes.onboardingNeeds, extra: d),
+          onPressed: _reading ? null : () => _next(skip: false),
         ),
         OmaButton(
           label: 'Пропустить этот шаг',
           kind: OmaButtonKind.secondary,
-          onPressed: () => context.push(AppRoutes.onboardingNeeds, extra: d),
+          onPressed: _reading ? null : () => _next(skip: true),
         ),
       ],
       children: [
         const DomStepBar(step: 2, total: 3),
+        Text('Добавьте фотографии кухни',
+            style: OmaType.bold(20, OmaColors.black)),
         Text(
-          'Добавьте фото и планировку',
-          style: OmaType.bold(20, OmaColors.black),
-        ),
-        Text(
-          'Так будет проще распределить покупки и обсудить изменения в комнате.',
+          'Выберите реальные фотографии. Они появятся в паспорте кухни '
+          'после завершения настройки жилья.',
           style: OmaType.regular(14, OmaColors.muted),
         ),
-        DomCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
-                child: Image.asset(
-                  'assets/images/attachment_kitchen.png',
-                  height: 140,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    height: 140,
-                    color: OmaColors.blueSoft,
+        for (var index = 0; index < _photos.length; index++)
+          DomCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(10)),
+                  child: Image.memory(
+                    _photos[index].bytes,
+                    height: 155,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const SizedBox(
+                      height: 155,
+                      child: Center(child: Icon(Icons.broken_image_outlined)),
+                    ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Пример вложения · концептуальное фото',
-                      style: OmaType.regular(11, OmaColors.muted),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Кухня.jpg', style: OmaType.medium(14, OmaColors.ink)),
-                              Text(
-                                'Добавлено · заменить или удалить',
-                                style: OmaType.regular(12, OmaColors.muted),
-                              ),
-                            ],
-                          ),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_photos[index].name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: OmaType.medium(14, OmaColors.ink)),
+                            Text('Выбрано · будет сохранено после настройки',
+                                style: OmaType.regular(12, OmaColors.muted)),
+                          ],
                         ),
-                        const Icon(Icons.chevron_right, color: OmaColors.muted),
-                      ],
-                    ),
-                  ],
+                      ),
+                      IconButton(
+                        tooltip: 'Удалить фотографию',
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () => setState(() => _photos.removeAt(index)),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          ),
+        DropTarget(
+          onDragEntered: (_) => setState(() => _dragging = true),
+          onDragExited: (_) => setState(() => _dragging = false),
+          onDragDone: (details) {
+            _addPhotos(details.files);
+          },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: _dragging ? OmaColors.blueSoft : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: DomDashedUpload(
+              title: _reading
+                  ? 'Читаем файлы…'
+                  : _dragging
+                      ? 'Отпустите фотографии здесь'
+                      : '+ Добавить фотографии',
+              subtitle: 'Нажмите или перетащите JPG, PNG, WEBP · до 8 МБ · максимум 5',
+              onTap: _reading ? null : _choosePhotos,
+            ),
           ),
         ),
-        DomDashedUpload(title: '+ Добавить фотографии', onTap: () {}),
-        DomCard(
-          child: Row(
-            children: [
-              DomIconTile(icon: Icons.description_outlined, size: 44),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Планировка.pdf', style: OmaType.medium(14, OmaColors.ink)),
-                    Text(
-                      'Добавлено · проверить и заменить',
-                      style: OmaType.regular(12, OmaColors.muted),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Файл ещё не проверен. Помещения можно отредактировать вручную.',
-                      style: OmaType.regular(11, OmaColors.muted),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: OmaColors.muted),
-            ],
+        if (_photos.isEmpty)
+          const DomSoftNote(
+            'Фотографий ещё нет. Можно пропустить этот шаг; '
+            'пример кухни больше не выдаётся за загруженный файл.',
           ),
+        const DomSoftNote(
+          'PDF-планировка пока не поддерживается сервером. '
+          'Сейчас загружаются только фотографии; комнаты можно '
+          'настроить вручную.',
         ),
       ],
     );
@@ -457,7 +544,8 @@ class _OnboardingNeedsScreenState extends State<OnboardingNeedsScreen> {
       context.go(AppRoutes.onboardingDraft);
       return;
     }
-    await cubit.addFromOnboarding(
+    // Create the real property/rooms first; the room photo API needs a room ID.
+    final property = await cubit.addFromOnboarding(
       name: draft?.name ?? 'Моя квартира',
       type: draft?.type ?? PropertyType.apartment,
       areaSqm: draft?.area,
@@ -467,7 +555,48 @@ class _OnboardingNeedsScreenState extends State<OnboardingNeedsScreen> {
       tenure: draft?.tenure,
     );
     if (!mounted) return;
+
+    String? photoWarning;
+    final photos = draft?.photos ?? const <OnboardingPhoto>[];
+    if (photos.isNotEmpty) {
+      if (ApiConfig.useMock) {
+        photoWarning = 'В автономном демо-режиме фото доступны только '
+            'для предпросмотра; загрузка на сервер отключена.';
+      } else {
+        try {
+          final kitchen = property.rooms.where((room) => room.kind == 'kitchen');
+          if (kitchen.isEmpty) {
+            throw StateError('Не найдена комната «Кухня»');
+          }
+          final roomId = kitchen.first.id;
+          final dio = context.read<DioClient>().dio;
+          for (final photo in photos) {
+            await dio.post<dynamic>(
+              '${ApiConfig.apiPrefix}/rooms/$roomId/photos',
+              data: FormData.fromMap({
+                'file': MultipartFile.fromBytes(
+                  photo.bytes,
+                  filename: photo.name,
+                  contentType: DioMediaType.parse(photo.mimeType),
+                ),
+              }),
+              options: Options(contentType: 'multipart/form-data'),
+            );
+          }
+          await cubit.load();
+        } catch (error) {
+          photoWarning = 'Жильё создано, но не все фотографии '
+              'загрузились на сервер: $error';
+        }
+      }
+    }
+    if (!mounted) return;
     context.go(AppRoutes.myHome);
+    if (photoWarning != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(photoWarning)),
+      );
+    }
   }
 
   @override
