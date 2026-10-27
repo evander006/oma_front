@@ -591,12 +591,13 @@ class _OnboardingNeedsScreenState extends State<OnboardingNeedsScreen> {
       }
     }
     if (!mounted) return;
-    context.go(AppRoutes.myHome);
     if (photoWarning != null) {
+      // Show the warning before navigating: this widget is then disposed.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(photoWarning)),
       );
     }
+    context.go(AppRoutes.myHome);
   }
 
   @override
