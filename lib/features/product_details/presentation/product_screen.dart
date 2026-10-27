@@ -7,6 +7,7 @@ import 'package:oma/features/cart/cubit/cart_cubit.dart';
 import 'package:oma/features/favorites/cubit/favorites_cubit.dart';
 import 'package:oma/features/my_home/cubit/properties_cubit.dart';
 import 'package:oma/shared/models/product.dart';
+import 'package:oma/features/product_3d/presentation/product_3d_viewer.dart';
 import 'package:oma/shared/widgets/product_image.dart';
 import 'package:oma/theme/oma_theme.dart';
 import 'package:oma/widgets/oma_chrome.dart';
@@ -142,6 +143,17 @@ class _ProductScreenState extends State<ProductScreen> {
               AppRoutes.room3dPath(link.propertyId, link.roomId),
             ),
           ),
+        OmaButton(
+          label: 'Заказать установку / услугу',
+          kind: OmaButtonKind.secondary,
+          onPressed: () {
+            if (installs.isNotEmpty) {
+              context.push(AppRoutes.installPath(product.id));
+            } else {
+              context.go(AppRoutes.services);
+            }
+          },
+        ),
         if (installs.isNotEmpty)
           Container(
             width: double.infinity,
@@ -170,6 +182,8 @@ class _ProductScreenState extends State<ProductScreen> {
               ],
             ),
           ),
+        Text('3D-модель', style: OmaType.bold(15, OmaColors.ink)),
+        Product3dViewer(product: product),
         if (product.description.isNotEmpty) ...[
           Text('Описание', style: OmaType.bold(15, OmaColors.ink)),
           Text(product.description, style: OmaType.regular(13, OmaColors.ink)),
@@ -179,11 +193,6 @@ class _ProductScreenState extends State<ProductScreen> {
           for (final e in product.specs.entries)
             OmaDataRow(label: e.key, value: e.value),
         ],
-        if (product.has3dModel)
-          Text(
-            'Есть 3D-модель (GLB) · приближённая геометрия с бэкенда',
-            style: OmaType.regular(12, OmaColors.muted),
-          ),
       ],
     );
   }

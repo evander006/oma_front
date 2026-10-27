@@ -20,7 +20,6 @@ class OmaApp extends StatelessWidget {
     return AppScope(
       prefs: prefs,
       child: MaterialApp.router(
-        
         debugShowCheckedModeBanner: false,
         theme: buildOmaTheme(),
         themeMode: ThemeMode.light,

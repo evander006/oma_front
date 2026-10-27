@@ -5,13 +5,17 @@ import 'package:oma/core/network/dio_client.dart';
 import 'package:oma/core/repositories/ai_chat_repository.dart';
 import 'package:oma/core/repositories/catalog_repository.dart';
 import 'package:oma/core/repositories/commerce_repository.dart';
+import 'package:oma/core/repositories/loyalty_repository.dart';
 import 'package:oma/core/repositories/orders_repository.dart';
 import 'package:oma/core/repositories/properties_repository.dart';
+import 'package:oma/core/repositories/renovation_repository.dart';
+import 'package:oma/core/repositories/services_repository.dart';
 import 'package:oma/features/cart/cubit/cart_cubit.dart';
 import 'package:oma/features/catalog/cubit/catalog_cubit.dart';
 import 'package:oma/features/favorites/cubit/favorites_cubit.dart';
 import 'package:oma/features/my_home/cubit/properties_cubit.dart';
 import 'package:oma/features/orders/cubit/orders_cubit.dart';
+import 'package:oma/features/projects/cubit/projects_cubit.dart';
 import 'package:oma/shared/models/product.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -49,6 +53,9 @@ class AppScope extends StatelessWidget {
           );
     final properties = PropertiesRepository(prefs);
     final orders = OrdersRepository(prefs);
+    final renovation = LocalRenovationRepository(prefs);
+    final services = LocalServicesRepository();
+    final loyalty = DemoLoyaltyRepository();
 
     return MultiRepositoryProvider(
       providers: [
@@ -59,6 +66,9 @@ class AppScope extends StatelessWidget {
         RepositoryProvider<AiChatRepository>.value(value: ai),
         RepositoryProvider.value(value: properties),
         RepositoryProvider.value(value: orders),
+        RepositoryProvider<RenovationRepository>.value(value: renovation),
+        RepositoryProvider<ServicesRepository>.value(value: services),
+        RepositoryProvider<LoyaltyRepository>.value(value: loyalty),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -71,6 +81,9 @@ class AppScope extends StatelessWidget {
           BlocProvider(create: (_) => CatalogCubit(catalog)..load()),
           BlocProvider(create: (_) => PropertiesCubit(properties)),
           BlocProvider(create: (_) => OrdersCubit(orders)),
+          BlocProvider(
+            create: (_) => ProjectsCubit(renovation)..load(),
+          ),
         ],
         child: child,
       ),

@@ -32,28 +32,32 @@ class OmaButton extends StatelessWidget {
     };
     final borderColor = orange ? Colors.transparent : OmaColors.blue;
 
-    return Material(
-      color: background,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onPressed,
+    final enabled = onPressed != null;
+    return Opacity(
+      opacity: enabled ? 1 : 0.55,
+      child: Material(
+        color: background,
         borderRadius: BorderRadius.circular(8),
-        child: Ink(
-          height: orange ? 44 : 48,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor),
-          ),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                label,
-                maxLines: 1,
-                textAlign: TextAlign.center,
-                style: orange
-                    ? OmaType.bold(14, foreground)
-                    : OmaType.semibold(14, foreground),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(8),
+          child: Ink(
+            height: orange ? 44 : 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: borderColor),
+            ),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: orange
+                      ? OmaType.bold(14, foreground)
+                      : OmaType.semibold(14, foreground),
+                ),
               ),
             ),
           ),

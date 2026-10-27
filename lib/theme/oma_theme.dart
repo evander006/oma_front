@@ -17,6 +17,29 @@ abstract final class OmaColors {
   static const searchFill = Color(0xFFECECED);
   static const green = Color(0xFF25815A);
   static const greenSoft = Color(0xFFEAF6EF);
+  static const danger = Color(0xFFC0392B);
+  static const dangerSoft = Color(0xFFFDECEA);
+}
+
+/// Shared spacing scale (dp).
+abstract final class OmaSpace {
+  static const xxs = 4.0;
+  static const xs = 8.0;
+  static const sm = 12.0;
+  static const md = 16.0;
+  static const lg = 20.0;
+  static const xl = 24.0;
+  static const xxl = 32.0;
+}
+
+/// Shared corner radii.
+abstract final class OmaRadius {
+  static const xs = 4.0;
+  static const sm = 8.0;
+  static const md = 12.0;
+  static const lg = 14.0;
+  static const xl = 20.0;
+  static const pill = 100.0;
 }
 
 abstract final class OmaType {

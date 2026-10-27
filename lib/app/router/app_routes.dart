@@ -1,9 +1,12 @@
 abstract final class AppRoutes {
   static const home = '/';
   static const catalog = '/catalog';
+  static const services = '/services';
+  static const projects = '/projects';
+  static const profile = '/profile';
+
   static const cart = '/cart';
   static const favorites = '/favorites';
-  static const profile = '/profile';
 
   static const onboarding = '/onboarding';
   static const onboardingHousing = '/onboarding/housing';
@@ -25,12 +28,20 @@ abstract final class AppRoutes {
       '/profile/property/:propertyId/room/:roomId/missing';
   static const roomPurchases =
       '/profile/property/:propertyId/room/:roomId/purchases';
-  static const roomSaved =
-      '/profile/property/:propertyId/room/:roomId/saved';
+  static const roomSaved = '/profile/property/:propertyId/room/:roomId/saved';
 
   static const product = '/catalog/product/:productId';
   static const installation = '/catalog/product/:productId/install';
   static const orders = '/profile/orders';
+  static const loyalty = '/profile/loyalty';
+
+  static const turnkey = '/services/turnkey';
+  static const turnkeyDraft = '/services/turnkey/:requestId';
+  static const serviceBooking = '/services/book/:serviceId';
+  static const projectDetail = '/projects/:requestId';
+  static const aiDesign = '/ai-design';
+  static const aiDesignResults = '/ai-design/results';
+  static const measurer = '/services/measurer';
 
   static String propertyPath(String id) => '/profile/property/$id';
   static String propertyEditPath(String id) => '/profile/property/$id/edit';
@@ -53,4 +64,7 @@ abstract final class AppRoutes {
       '/profile/property/$propertyId/room/$roomId/saved';
   static String productPath(String id) => '/catalog/product/$id';
   static String installPath(String id) => '/catalog/product/$id/install';
+  static String turnkeyPath(String id) => '/services/turnkey/$id';
+  static String serviceBookPath(String id) => '/services/book/$id';
+  static String projectPath(String id) => '/projects/$id';
 }

@@ -37,7 +37,11 @@ class _CatalogScreenState extends State<CatalogScreen> {
         ];
 
         return OmaPage(
-          header: const OmaFlowHeader(title: 'Каталог', eyebrow: 'ОМА · API'),
+          header: const OmaFlowHeader(
+            title: 'Каталог',
+            eyebrow: 'ОМА · API',
+            showCart: true,
+          ),
           children: [
             TextField(
               onChanged: (v) {

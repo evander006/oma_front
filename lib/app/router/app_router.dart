@@ -1,11 +1,13 @@
 import 'package:go_router/go_router.dart';
 import 'package:oma/app/router/app_routes.dart';
 import 'package:oma/features/ai_assistant/presentation/ai_chat_screen.dart';
+import 'package:oma/features/ai_assistant/presentation/ai_design_flow_screen.dart';
 import 'package:oma/features/cart/presentation/cart_screen.dart';
 import 'package:oma/features/catalog/presentation/catalog_screen.dart';
 import 'package:oma/features/favorites/presentation/favorites_screen.dart';
 import 'package:oma/features/home/presentation/home_screen.dart';
 import 'package:oma/features/installation/presentation/installation_flow_screen.dart';
+import 'package:oma/features/loyalty/presentation/loyalty_screen.dart';
 import 'package:oma/features/my_home/presentation/missing_items_screen.dart';
 import 'package:oma/features/my_home/presentation/my_home_screens.dart';
 import 'package:oma/features/my_home/presentation/room_purchases_screen.dart';
@@ -15,7 +17,12 @@ import 'package:oma/features/onboarding/presentation/onboarding_screens.dart';
 import 'package:oma/features/orders/presentation/orders_screen.dart';
 import 'package:oma/features/product_details/presentation/product_screen.dart';
 import 'package:oma/features/profile/presentation/profile_screen.dart';
+import 'package:oma/features/projects/presentation/projects_screen.dart';
 import 'package:oma/features/room_3d/presentation/room_3d_screen.dart';
+import 'package:oma/features/services/presentation/measurer_screen.dart';
+import 'package:oma/features/services/presentation/service_booking_screen.dart';
+import 'package:oma/features/services/presentation/services_hub_screen.dart';
+import 'package:oma/features/services/presentation/turnkey_wizard_screen.dart';
 import 'package:oma/widgets/oma_chrome.dart';
 
 GoRouter buildRouter() {
@@ -43,6 +50,44 @@ GoRouter buildRouter() {
             builder: (context, state) => const OnboardingDraftDoneScreen(),
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.cart,
+        builder: (context, state) => const CartScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.favorites,
+        builder: (context, state) => const FavoritesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.aiDesign,
+        builder: (context, state) => const AiDesignFlowScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.turnkey,
+        builder: (context, state) => const TurnkeyWizardScreen(),
+      ),
+      GoRoute(
+        path: '/services/turnkey/:requestId',
+        builder: (context, state) => TurnkeyWizardScreen(
+          requestId: state.pathParameters['requestId'],
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.measurer,
+        builder: (context, state) => const MeasurerScreen(),
+      ),
+      GoRoute(
+        path: '/services/book/:serviceId',
+        builder: (context, state) => ServiceBookingScreen(
+          serviceId: state.pathParameters['serviceId']!,
+        ),
+      ),
+      GoRoute(
+        path: '/projects/:requestId',
+        builder: (context, state) => ProjectDetailScreen(
+          requestId: state.pathParameters['requestId']!,
+        ),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -84,16 +129,16 @@ GoRouter buildRouter() {
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: AppRoutes.cart,
-                builder: (context, state) => const CartScreen(),
+                path: AppRoutes.services,
+                builder: (context, state) => const ServicesHubScreen(),
               ),
             ],
           ),
           StatefulShellBranch(
             routes: [
               GoRoute(
-                path: AppRoutes.favorites,
-                builder: (context, state) => const FavoritesScreen(),
+                path: AppRoutes.projects,
+                builder: (context, state) => const ProjectsScreen(),
               ),
             ],
           ),
@@ -110,6 +155,10 @@ GoRouter buildRouter() {
                   GoRoute(
                     path: 'orders',
                     builder: (context, state) => const OrdersScreen(),
+                  ),
+                  GoRoute(
+                    path: 'loyalty',
+                    builder: (context, state) => const LoyaltyScreen(),
                   ),
                   GoRoute(
                     path: 'property/:propertyId',

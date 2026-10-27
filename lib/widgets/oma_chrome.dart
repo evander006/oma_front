@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oma/app/router/app_routes.dart';
 import 'package:oma/features/cart/cubit/cart_cubit.dart';
-import 'package:oma/features/favorites/cubit/favorites_cubit.dart';
 import 'package:oma/theme/oma_icons.dart';
 import 'package:oma/theme/oma_theme.dart';
 import 'package:oma/widgets/oma_icon.dart';
@@ -23,9 +22,6 @@ class OmaShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cartCount = context.watch<CartCubit>().state.count;
-    final favCount = context.watch<FavoritesCubit>().state.items.length;
-
     return ColoredBox(
       color: OmaColors.background,
       child: Center(
@@ -36,8 +32,6 @@ class OmaShell extends StatelessWidget {
             body: navigationShell,
             bottomNavigationBar: OmaBottomNav(
               currentIndex: navigationShell.currentIndex,
-              cartCount: cartCount,
-              favoritesCount: favCount,
               onTap: (index) {
                 navigationShell.goBranch(
                   index,
@@ -56,21 +50,17 @@ class OmaBottomNav extends StatelessWidget {
   const OmaBottomNav({
     required this.currentIndex,
     required this.onTap,
-    this.cartCount = 0,
-    this.favoritesCount = 0,
     super.key,
   });
 
   final int currentIndex;
   final ValueChanged<int> onTap;
-  final int cartCount;
-  final int favoritesCount;
 
   static const _labels = [
     'Главная',
     'Каталог',
-    'Корзина',
-    'Избранное',
+    'Услуги',
+    'Мои проекты',
     'Профиль',
   ];
 
@@ -94,11 +84,6 @@ class OmaBottomNav extends StatelessWidget {
                     label: _labels[i],
                     icon: _icon(i, i == currentIndex),
                     selected: i == currentIndex,
-                    badge: i == 2
-                        ? cartCount
-                        : i == 3
-                            ? favoritesCount
-                            : 0,
                     onTap: () => onTap(i),
                   ),
                 ),
@@ -109,14 +94,39 @@ class OmaBottomNav extends StatelessWidget {
     );
   }
 
+  IconData _materialIcon(int index, bool selected) {
+    return switch (index) {
+      0 => selected ? Icons.home_rounded : Icons.home_outlined,
+      1 => selected ? Icons.grid_view_rounded : Icons.grid_view_outlined,
+      2 => selected ? Icons.handyman_rounded : Icons.handyman_outlined,
+      3 => selected ? Icons.folder_rounded : Icons.folder_outlined,
+      _ => selected ? Icons.person_rounded : Icons.person_outline,
+    };
+  }
+
   String _icon(int index, bool selected) {
+    // Prefer SVG assets where they match; material fallback via empty string.
     return switch (index) {
       0 => selected ? OmaIcons.navHome : OmaIcons.navHomeIdle,
       1 => selected ? OmaIcons.navSearchActive : OmaIcons.navSearch,
-      2 => selected ? OmaIcons.navBagActive : OmaIcons.navBag,
-      3 => OmaIcons.navHeart,
+      2 => '',
+      3 => '',
       _ => selected ? OmaIcons.navUserActive : OmaIcons.navUser,
     };
+  }
+
+  // Expose material icon for tabs without SVG assets.
+  // ignore: unused_element
+  Widget buildIcon(int index, bool selected) {
+    final asset = _icon(index, selected);
+    if (asset.isEmpty) {
+      return Icon(
+        _materialIcon(index, selected),
+        size: 24,
+        color: selected ? OmaColors.orange : OmaColors.muted,
+      );
+    }
+    return OmaIcon(asset, size: 24);
   }
 }
 
@@ -126,17 +136,30 @@ class _Tab extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.onTap,
-    this.badge = 0,
   });
 
   final String label;
   final String icon;
   final bool selected;
   final VoidCallback onTap;
-  final int badge;
 
   @override
   Widget build(BuildContext context) {
+    final color = selected ? OmaColors.orange : OmaColors.muted;
+    Widget iconWidget;
+    if (icon.isEmpty) {
+      final material = switch (label) {
+        'Услуги' =>
+          selected ? Icons.handyman_rounded : Icons.handyman_outlined,
+        'Мои проекты' =>
+          selected ? Icons.folder_rounded : Icons.folder_outlined,
+        _ => Icons.circle_outlined,
+      };
+      iconWidget = Icon(material, size: 24, color: color);
+    } else {
+      iconWidget = OmaIcon(icon, size: 24);
+    }
+
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -144,30 +167,7 @@ class _Tab extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                OmaIcon(icon, size: 24),
-                if (badge > 0)
-                  Positioned(
-                    right: -8,
-                    top: -4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      constraints: const BoxConstraints(minWidth: 16),
-                      decoration: BoxDecoration(
-                        color: OmaColors.orange,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        badge > 99 ? '99+' : '$badge',
-                        textAlign: TextAlign.center,
-                        style: OmaType.bold(9, OmaColors.ink),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+            iconWidget,
             const SizedBox(height: 4),
             Text(
               label,
@@ -190,6 +190,8 @@ class OmaHomeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cartCount = context.watch<CartCubit>().state.count;
+
     return Material(
       color: OmaColors.white,
       child: Container(
@@ -202,7 +204,48 @@ class OmaHomeHeader extends StatelessWidget {
           children: [
             const OmaLogo(),
             const Spacer(),
-            Text('Минск ›', style: OmaType.bold(16, OmaColors.ink)),
+            IconButton(
+              tooltip: 'Уведомления',
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Уведомления появятся после подключения API'),
+                  ),
+                );
+              },
+              icon: const Icon(
+                Icons.notifications_none_rounded,
+                color: OmaColors.ink,
+              ),
+            ),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                IconButton(
+                  tooltip: 'Корзина',
+                  onPressed: () => context.push(AppRoutes.cart),
+                  icon: const OmaIcon(OmaIcons.navBag, size: 22),
+                ),
+                if (cartCount > 0)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      constraints: const BoxConstraints(minWidth: 16),
+                      decoration: BoxDecoration(
+                        color: OmaColors.orange,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        cartCount > 99 ? '99+' : '$cartCount',
+                        textAlign: TextAlign.center,
+                        style: OmaType.bold(9, OmaColors.ink),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
       ),
@@ -213,15 +256,19 @@ class OmaHomeHeader extends StatelessWidget {
 class OmaFlowHeader extends StatelessWidget {
   const OmaFlowHeader({
     required this.title,
-    this.eyebrow = 'ОМА. Событие · демо',
+    this.eyebrow = 'ОМА. Дом',
+    this.showCart = false,
     super.key,
   });
 
   final String title;
   final String eyebrow;
+  final bool showCart;
 
   @override
   Widget build(BuildContext context) {
+    final cartCount = showCart ? context.watch<CartCubit>().state.count : 0;
+
     return Material(
       color: OmaColors.white,
       child: Container(
@@ -261,8 +308,36 @@ class OmaFlowHeader extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            const OmaIcon(OmaIcons.ellipsis, size: 20),
+            if (showCart)
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    onPressed: () => context.push(AppRoutes.cart),
+                    icon: const OmaIcon(OmaIcons.navBag, size: 22),
+                  ),
+                  if (cartCount > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        constraints: const BoxConstraints(minWidth: 16),
+                        decoration: BoxDecoration(
+                          color: OmaColors.orange,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$cartCount',
+                          textAlign: TextAlign.center,
+                          style: OmaType.bold(9, OmaColors.ink),
+                        ),
+                      ),
+                    ),
+                ],
+              )
+            else
+              const OmaIcon(OmaIcons.ellipsis, size: 20),
           ],
         ),
       ),

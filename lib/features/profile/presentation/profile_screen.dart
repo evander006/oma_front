@@ -100,6 +100,20 @@ class ProfileScreen extends StatelessWidget {
           ),
         ),
         _MenuTile(
+          title: 'Мои проекты',
+          subtitle: 'Ремонт, дизайны и заявки',
+          onTap: () => context.go(AppRoutes.projects),
+        ),
+        _MenuTile(
+          title: 'Бонусная программа',
+          subtitle: 'Баллы и награды · демо',
+          onTap: () => context.push(AppRoutes.loyalty),
+        ),
+        _MenuTile(
+          title: 'Корзина',
+          onTap: () => context.push(AppRoutes.cart),
+        ),
+        _MenuTile(
           title: 'Мои заказы',
           subtitle: orders.isEmpty
               ? 'Пока нет демо-заказов'
@@ -117,16 +131,38 @@ class ProfileScreen extends StatelessWidget {
         ),
         _MenuTile(
           title: 'Избранное',
-          onTap: () => context.go(AppRoutes.favorites),
+          onTap: () => context.push(AppRoutes.favorites),
         ),
-        _MenuTile(title: 'Купленные товары', onTap: () {}),
         _MenuTile(
           title: 'История заказов',
           onTap: () => context.push(AppRoutes.orders),
         ),
-        _MenuTile(title: 'История просмотров', onTap: () {}),
-        _MenuTile(title: 'История уведомлений', onTap: () {}),
-        _MenuTile(title: 'Настройки уведомлений', onTap: () {}),
+        _MenuTile(
+          title: 'Уведомления',
+          subtitle: 'Настройки появятся после API',
+          onTap: () {},
+        ),
+        _MenuTile(
+          title: 'Конфиденциальность',
+          subtitle: 'Удаление фото и данных проектов',
+          onTap: () {
+            showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Данные проектов'),
+                content: const Text(
+                  'Локальные черновики ремонта можно удалить в разделе «Мои проекты». Полное удаление аккаунта — после подключения auth API.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Понятно'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         _MenuTile(
           title: 'Моя информация',
           subtitle: 'Личные данные и настройки аккаунта',
