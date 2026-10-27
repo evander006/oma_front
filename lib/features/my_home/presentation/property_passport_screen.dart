@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:oma/app/router/app_routes.dart';
 import 'package:oma/core/repositories/home_passport_repository.dart';
+import 'package:oma/core/network/api_config.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:oma/features/my_home/cubit/properties_cubit.dart';
 import 'package:oma/features/my_home/presentation/widgets/dom_widgets.dart';
 import 'package:oma/shared/models/home_passport.dart';
@@ -44,6 +46,22 @@ class _PropertyPassportScreenState extends State<PropertyPassportScreen> {
 
   void _reload() => setState(() => _data = _load());
 
+  Future<void> _openPdf(String path) async {
+    final uri = Uri.parse(ApiConfig.absoluteUrl(path));
+    try {
+      final success = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!success) throw StateError('Скачать документ не удалось');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка скачивания PDF: $error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final property = _findProperty(context, widget.propertyId);
@@ -58,13 +76,10 @@ class _PropertyPassportScreenState extends State<PropertyPassportScreen> {
       header: OmaFlowHeader(title: property.name, eyebrow: 'Паспорт жилья'),
       actions: [
         OmaButton(
-          label: 'Запланировать ремонт',
-          onPressed: () => context.push(AppRoutes.turnkey),
-        ),
-        OmaButton(
-          label: 'Найти мастера',
-          kind: OmaButtonKind.secondary,
-          onPressed: () => context.push(AppRoutes.masters),
+          label: 'Скачать PDF-паспорт жилья',
+          onPressed: () => _openPdf(
+            '/api/v1/properties/' + widget.propertyId + '/passport.pdf',
+          ),
         ),
       ],
       children: [
@@ -119,7 +134,18 @@ class _PropertyPassportScreenState extends State<PropertyPassportScreen> {
                   _EmptyEquipment(onAdd: () => _showAddEquipment(property))
                 else
                   for (final item in data.equipment) ...[
-                    _EquipmentCard(item: item),
+                    _EquipmentCard(
+                      item: item,
+                      onDownload: int.tryParse(item.id) == null
+                          ? null
+                          : () => _openPdf(
+                                '/api/v1/properties/' +
+                                    widget.propertyId +
+                                    '/equipment/' +
+                                    item.id +
+                                    '/passport.pdf',
+                              ),
+                    ),
                     const SizedBox(height: 10),
                   ],
                 const SizedBox(height: 6),
@@ -319,9 +345,10 @@ class _PassportSummary extends StatelessWidget {
 }
 
 class _EquipmentCard extends StatelessWidget {
-  const _EquipmentCard({required this.item});
+  const _EquipmentCard({required this.item, this.onDownload});
 
   final HomeEquipment item;
+  final VoidCallback? onDownload;
 
   @override
   Widget build(BuildContext context) => DomCard(
@@ -346,6 +373,14 @@ class _EquipmentCard extends StatelessWidget {
             if (item.contractorName != null) ...[
               const SizedBox(height: 8),
               Text('Устанавливал: ${item.contractorName}', style: OmaType.regular(12, OmaColors.blue)),
+            ],
+            if (onDownload != null) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: onDownload,
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('Скачать паспорт оборудования (PDF)'),
+              ),
             ],
           ],
         ),
