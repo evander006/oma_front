@@ -22,26 +22,98 @@ class OmaShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: OmaColors.background,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 430),
-          child: Scaffold(
-            backgroundColor: OmaColors.background,
-            body: navigationShell,
-            bottomNavigationBar: OmaBottomNav(
-              currentIndex: navigationShell.currentIndex,
-              onTap: (index) {
-                navigationShell.goBranch(
-                  index,
-                  initialLocation: index == navigationShell.currentIndex,
-                );
-              },
+    void select(int index) => navigationShell.goBranch(
+          index,
+          initialLocation: index == navigationShell.currentIndex,
+        );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final desktop = constraints.maxWidth >= 900;
+        if (!desktop) {
+          return ColoredBox(
+            color: OmaColors.background,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Scaffold(
+                  backgroundColor: OmaColors.background,
+                  body: navigationShell,
+                  bottomNavigationBar: OmaBottomNav(
+                    currentIndex: navigationShell.currentIndex,
+                    onTap: select,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final extended = constraints.maxWidth >= 1180;
+        return Scaffold(
+          backgroundColor: OmaColors.background,
+          body: SafeArea(
+            child: Row(
+              children: [
+                NavigationRail(
+                  backgroundColor: OmaColors.white,
+                  selectedIndex: navigationShell.currentIndex,
+                  onDestinationSelected: select,
+                  extended: extended,
+                  minExtendedWidth: 210,
+                  labelType: extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
+                  leading: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: extended
+                        ? const OmaLogo()
+                        : const Icon(Icons.home_work_outlined, color: OmaColors.blue),
+                  ),
+                  selectedIconTheme: const IconThemeData(color: OmaColors.blue),
+                  unselectedIconTheme: const IconThemeData(color: OmaColors.muted),
+                  selectedLabelTextStyle: OmaType.semibold(13, OmaColors.blue),
+                  unselectedLabelTextStyle: OmaType.regular(13, OmaColors.muted),
+                  destinations: const [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.home_outlined),
+                      selectedIcon: Icon(Icons.home_rounded),
+                      label: Text('Главная'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.grid_view_outlined),
+                      selectedIcon: Icon(Icons.grid_view_rounded),
+                      label: Text('Каталог'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.handyman_outlined),
+                      selectedIcon: Icon(Icons.handyman_rounded),
+                      label: Text('Услуги'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.folder_outlined),
+                      selectedIcon: Icon(Icons.folder_rounded),
+                      label: Text('Мои проекты'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.person_outline),
+                      selectedIcon: Icon(Icons.person_rounded),
+                      label: Text('Профиль'),
+                    ),
+                  ],
+                ),
+                const VerticalDivider(width: 1, color: OmaColors.line),
+                Expanded(
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 960),
+                      child: navigationShell,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -385,14 +457,19 @@ class OmaPage extends StatelessWidget {
           children: [
             ?header,
             Expanded(
-              child: ListView(
-                padding: padding,
-                children: [
-                  for (var i = 0; i < children.length; i++) ...[
-                    if (i > 0) const SizedBox(height: 16),
-                    children[i],
-                  ],
-                ],
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 960),
+                  child: ListView(
+                    padding: padding,
+                    children: [
+                      for (var i = 0; i < children.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 16),
+                        children[i],
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
             if (actions.isNotEmpty)
@@ -403,18 +480,23 @@ class OmaPage extends StatelessWidget {
                 ),
                 child: SafeArea(
                   top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (var i = 0; i < actions.length; i++) ...[
-                          if (i > 0) const SizedBox(height: 10),
-                          actions[i],
-                        ],
-                      ],
-                    ),
-                  ),
+                   child: Center(
+                     child: ConstrainedBox(
+                       constraints: const BoxConstraints(maxWidth: 960),
+                       child: Padding(
+                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                         child: Column(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                             for (var i = 0; i < actions.length; i++) ...[
+                               if (i > 0) const SizedBox(height: 10),
+                               actions[i],
+                             ],
+                           ],
+                         ),
+                       ),
+                     ),
+                   ),
                 ),
               ),
           ],

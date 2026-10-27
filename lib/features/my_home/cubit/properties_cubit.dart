@@ -62,6 +62,7 @@ class PropertiesCubit extends Cubit<PropertiesState> {
     int? livingRooms,
     double? budgetByn,
     String? goal,
+    PropertyTenure? tenure,
   }) async {
     final draft = await _repo.createDraft(
       name: name,
@@ -71,6 +72,7 @@ class PropertiesCubit extends Cubit<PropertiesState> {
       livingRooms: livingRooms,
       budgetByn: budgetByn,
       goal: goal,
+      tenure: tenure,
       isDraft: false,
     );
     final cleared = state.properties
@@ -90,8 +92,14 @@ class PropertiesCubit extends Cubit<PropertiesState> {
   Future<Property> addDraft({
     required String name,
     required PropertyType type,
+    PropertyTenure? tenure,
   }) async {
-    final draft = await _repo.createDraft(name: name, type: type, isDraft: true);
+    final draft = await _repo.createDraft(
+      name: name,
+      type: type,
+      tenure: tenure,
+      isDraft: true,
+    );
     final cleared =
         state.properties.map((p) => p.copyWith(selected: false)).toList();
     await _persist([draft.copyWith(selected: true), ...cleared]);
@@ -100,12 +108,18 @@ class PropertiesCubit extends Cubit<PropertiesState> {
   }
 
   Future<void> upsert(Property property) async {
+    var persisted = property;
+    try {
+      persisted = await _repo.updateProperty(property);
+    } catch (_) {
+      // The local overlay remains usable when the remote API is unavailable.
+    }
     final exists = state.properties.any((p) => p.id == property.id);
     final list = exists
         ? state.properties
-            .map((p) => p.id == property.id ? property : p)
+            .map((p) => p.id == property.id ? persisted : p)
             .toList()
-        : [property, ...state.properties];
+        : [persisted, ...state.properties];
     await _persist(list);
   }
 
@@ -176,10 +190,16 @@ class PropertiesCubit extends Cubit<PropertiesState> {
   }
 
   Future<void> updateRoom(String propertyId, Room room) async {
+    var persisted = room;
+    try {
+      persisted = await _repo.updateRoom(propertyId: propertyId, room: room);
+    } catch (_) {
+      // Keep the edit in the local overlay if the API is temporarily unavailable.
+    }
     final list = state.properties.map((p) {
       if (p.id != propertyId) return p;
       return p.copyWith(
-        rooms: p.rooms.map((r) => r.id == room.id ? room : r).toList(),
+        rooms: p.rooms.map((r) => r.id == room.id ? persisted : r).toList(),
       );
     }).toList();
     await _persist(list);

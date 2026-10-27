@@ -64,9 +64,11 @@ class _PropertyCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               DomIconTile(
-                icon: property.type == PropertyType.house
-                    ? Icons.home_outlined
-                    : Icons.apartment_outlined,
+                icon: switch (property.type) {
+                  PropertyType.apartment => Icons.apartment_outlined,
+                  PropertyType.house => Icons.home_outlined,
+                  PropertyType.dacha => Icons.cottage_outlined,
+                },
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -99,6 +101,13 @@ class _PropertyCard extends StatelessWidget {
                           if (property.livingRooms != null)
                             '${property.livingRooms} жилые комнаты',
                         ].join(' · '),
+                        style: OmaType.regular(12, OmaColors.muted),
+                      ),
+                    if (property.tenure != null)
+                      Text(
+                        property.tenure == PropertyTenure.rented
+                            ? 'Арендованное жильё'
+                            : 'Собственное жильё',
                         style: OmaType.regular(12, OmaColors.muted),
                       ),
                   ],
@@ -189,8 +198,9 @@ class PropertyDetailScreen extends StatelessWidget {
               OmaButton(
                 label: 'Открыть паспорт дома',
                 kind: OmaButtonKind.secondary,
-                onPressed: () =>
-                    context.push(AppRoutes.propertyLayoutPath(property.id)),
+                onPressed: () => context.push(
+                  '/profile/property/${property.id}/passport',
+                ),
               ),
             ],
           ),
@@ -201,19 +211,15 @@ class PropertyDetailScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _LinkRow(
-                title: 'Установить смеситель на кухне',
-                subtitle: 'План: 24.10 · бюджет 250 р.',
-                onTap: () {
-                  if (kitchen != null) {
-                    context.push(AppRoutes.roomPath(property.id, kitchen.id));
-                  }
-                },
+                title: 'Ремонтные проекты',
+                subtitle: 'Планируйте работы и отслеживайте этапы',
+                onTap: () => context.go(AppRoutes.projects),
               ),
               const SizedBox(height: 12),
               OmaButton(
                 label: '+ Добавить задачу / проект',
                 kind: OmaButtonKind.secondary,
-                onPressed: () {},
+                onPressed: () => context.push(AppRoutes.turnkey),
               ),
             ],
           ),
@@ -223,34 +229,20 @@ class PropertyDetailScreen extends StatelessWidget {
           child: Column(
             children: [
               _LinkRow(
-                title: 'Смеситель Ledeme L4399U-12',
-                subtitle: 'Кухня · установка запланирована',
-                onTap: () => context.push(AppRoutes.productPath('p1')),
+                title: 'Паспорт оборудования',
+                subtitle: 'Техника, установленные товары и характеристики',
+                onTap: () => context.push(
+                  '/profile/property/${property.id}/passport',
+                ),
               ),
               const SizedBox(height: 12),
               OmaButton(
                 label: '+ Добавить оборудование',
                 kind: OmaButtonKind.secondary,
-                onPressed: () => context.go(AppRoutes.catalog),
+                onPressed: () => context.push(
+                  '/profile/property/${property.id}/passport',
+                ),
               ),
-            ],
-          ),
-        ),
-        _SectionTitle('Напоминания'),
-        DomCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Проверить документы на смеситель',
-                style: OmaType.medium(14, OmaColors.ink),
-              ),
-              Text(
-                '22.10, 15:00 · без уведомления',
-                style: OmaType.regular(12, OmaColors.muted),
-              ),
-              const SizedBox(height: 8),
-              OmaTextAction(label: 'Изменить напоминания', onPressed: () {}),
             ],
           ),
         ),
@@ -323,7 +315,7 @@ class PropertyDetailScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Подскажем освещение и хранение с учётом добавленного смесителя.',
+                  'Подберём товары каталога с учётом параметров этой комнаты.',
                   style: OmaType.regular(13, OmaColors.muted),
                 ),
                 const SizedBox(height: 12),
@@ -341,17 +333,21 @@ class PropertyDetailScreen extends StatelessWidget {
             child: Column(
               children: [
                 _LinkRow(
-                  title: 'Смеситель Ledeme L4399U-12',
-                  subtitle: 'Заказ № 261020-014',
+                  title: 'Покупки комнаты',
+                  subtitle: kitchenRoom.items.isEmpty
+                      ? 'Подтверждённых покупок пока нет'
+                      : '${kitchenRoom.items.length} товаров привязано к комнате',
                   onTap: () => context.push(
                     AppRoutes.roomPurchasesPath(property.id, kitchenRoom.id),
                   ),
                 ),
                 const Divider(height: 20),
                 _LinkRow(
-                  title: 'Установка смесителя',
-                  subtitle: 'На согласовании',
-                  onTap: () => context.push(AppRoutes.installPath('p1')),
+                  title: 'История работ и мастеров',
+                  subtitle: 'Завершённые работы сохраняются в паспорте',
+                  onTap: () => context.push(
+                    '/profile/property/${property.id}/passport',
+                  ),
                 ),
               ],
             ),
@@ -360,16 +356,18 @@ class PropertyDetailScreen extends StatelessWidget {
             child: Column(
               children: [
                 _LinkRow(
-                  title: 'Освещение для кухни',
-                  subtitle: 'Рекомендуется выбрать вместе со смесителем',
+                  title: 'Что ещё понадобится',
+                  subtitle: 'Рекомендации по следующим категориям',
                   onTap: () => context.push(
                     AppRoutes.roomMissingPath(property.id, kitchenRoom.id),
                   ),
                 ),
                 const Divider(height: 20),
                 _LinkRow(
-                  title: 'Фото кухни после установки',
-                  subtitle: 'Не добавлено',
+                  title: 'Фото помещения',
+                  subtitle: kitchenRoom.photoPaths.isEmpty
+                      ? 'Не добавлено'
+                      : '${kitchenRoom.photoPaths.length} фото',
                   onTap: () => context.push(
                     AppRoutes.roomEditPath(property.id, kitchenRoom.id),
                   ),
@@ -536,6 +534,7 @@ class _PropertyEditScreenState extends State<PropertyEditScreen> {
   final _area = TextEditingController(text: 'Не указана');
   final _address = TextEditingController(text: 'Добавить позже');
   PropertyType _type = PropertyType.house;
+  PropertyTenure? _tenure;
   Property? _original;
   bool _hydrated = false;
 
@@ -555,6 +554,7 @@ class _PropertyEditScreenState extends State<PropertyEditScreen> {
       _area.text = p.areaSqm?.toStringAsFixed(0) ?? 'Не указана';
       _address.text = p.address ?? 'Добавить позже';
       _type = p.type;
+      _tenure = p.tenure;
     }
   }
 
@@ -586,6 +586,7 @@ class _PropertyEditScreenState extends State<PropertyEditScreen> {
                 .copyWith(
               name: _name.text.trim().isEmpty ? 'Объект' : _name.text.trim(),
               type: _type,
+              tenure: _tenure,
               livingRooms: int.tryParse(_rooms.text),
               areaSqm: double.tryParse(_area.text.replaceAll(',', '.')),
               address: _address.text == 'Добавить позже'
@@ -610,24 +611,51 @@ class _PropertyEditScreenState extends State<PropertyEditScreen> {
           label: 'Название объекта',
           child: DomTextBox(controller: _name),
         ),
+        Text('Тип жилья', style: OmaType.medium(13, OmaColors.ink)),
+        Column(
+          children: [
+            _TypeToggle(
+              label: 'Квартира',
+              selected: _type == PropertyType.apartment,
+              onTap: () => setState(() => _type = PropertyType.apartment),
+            ),
+            const SizedBox(height: 8),
+            _TypeToggle(
+              label: 'Дом',
+              selected: _type == PropertyType.house,
+              onTap: () => setState(() => _type = PropertyType.house),
+            ),
+            const SizedBox(height: 8),
+            _TypeToggle(
+              label: 'Дача',
+              selected: _type == PropertyType.dacha,
+              onTap: () => setState(() => _type = PropertyType.dacha),
+            ),
+          ],
+        ),
+        Text('Статус жилья', style: OmaType.medium(13, OmaColors.ink)),
         Row(
           children: [
             Expanded(
               child: _TypeToggle(
-                label: 'Квартира',
-                selected: _type == PropertyType.apartment,
-                onTap: () => setState(() => _type = PropertyType.apartment),
+                label: 'Своё',
+                selected: _tenure == PropertyTenure.owned,
+                onTap: () => setState(() => _tenure = PropertyTenure.owned),
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: _TypeToggle(
-                label: 'Дом',
-                selected: _type == PropertyType.house,
-                onTap: () => setState(() => _type = PropertyType.house),
+                label: 'Аренда',
+                selected: _tenure == PropertyTenure.rented,
+                onTap: () => setState(() => _tenure = PropertyTenure.rented),
               ),
             ),
           ],
+        ),
+        Text(
+          'Для арендованного жилья достаточно указать только известные сведения.',
+          style: OmaType.regular(12, OmaColors.muted),
         ),
         DomLabeledField(
           label: 'Жилые комнаты · необязательно',

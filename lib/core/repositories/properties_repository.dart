@@ -24,6 +24,7 @@ abstract class PropertiesRepository {
     int? livingRooms,
     double? budgetByn,
     String? goal,
+    PropertyTenure? tenure,
     bool isDraft = true,
   });
 
@@ -37,6 +38,10 @@ abstract class PropertiesRepository {
     required String roomId,
     required String productId,
   });
+
+  Future<Property> updateProperty(Property property);
+
+  Future<Room> updateRoom({required String propertyId, required Room room});
 
   Future<void> deleteProperty(String id);
 }
@@ -81,6 +86,7 @@ class LocalPropertiesRepository implements PropertiesRepository {
     int? livingRooms,
     double? budgetByn,
     String? goal,
+    PropertyTenure? tenure,
     bool isDraft = true,
   }) async {
     final rooms = _defaultRooms(type);
@@ -94,6 +100,7 @@ class LocalPropertiesRepository implements PropertiesRepository {
       livingRooms: livingRooms,
       budgetByn: budgetByn,
       goal: goal,
+      tenure: tenure,
       isDraft: isDraft,
       selected: false,
     );
@@ -113,6 +120,15 @@ class LocalPropertiesRepository implements PropertiesRepository {
     required String roomId,
     required String productId,
   }) async {}
+
+  @override
+  Future<Property> updateProperty(Property property) async => property;
+
+  @override
+  Future<Room> updateRoom({
+    required String propertyId,
+    required Room room,
+  }) async => room;
 
   @override
   Future<void> deleteProperty(String id) async {
@@ -187,6 +203,10 @@ class RemotePropertiesRepository implements PropertiesRepository {
           map,
           items: items,
           photoPaths: photos,
+        ).copyWith(
+          wallMaterial: roomOverlay?['wallMaterial'] as String?,
+          floorMaterial: roomOverlay?['floorMaterial'] as String?,
+          ceilingMaterial: roomOverlay?['ceilingMaterial'] as String?,
         );
         roomsByProperty.putIfAbsent(propertyId, () => []).add(room);
       }
@@ -196,8 +216,7 @@ class RemotePropertiesRepository implements PropertiesRepository {
         final map = Map<String, dynamic>.from(raw);
         final id = '${map['id']}';
         final propOverlay = (overlay['properties'] as Map?)?[id] as Map?;
-        list.add(
-          PropertyMapper.propertyFromApi(
+        final property = PropertyMapper.propertyFromApi(
             map,
             rooms: roomsByProperty[id] ?? const [],
             selected: selectedId == id,
@@ -206,6 +225,10 @@ class RemotePropertiesRepository implements PropertiesRepository {
             budgetByn: (propOverlay?['budgetByn'] as num?)?.toDouble(),
             goal: propOverlay?['goal'] as String?,
             isDraft: propOverlay?['isDraft'] as bool? ?? false,
+          );
+        list.add(
+          property.copyWith(
+            tenure: _tenureFromOverlay(propOverlay?['tenure']),
           ),
         );
       }
@@ -252,11 +275,15 @@ class RemotePropertiesRepository implements PropertiesRepository {
         'livingRooms': p.livingRooms,
         'budgetByn': p.budgetByn,
         'goal': p.goal,
+        'tenure': p.tenure?.name,
         'isDraft': p.isDraft,
       };
       for (final r in p.rooms) {
         roomOverlay[r.id] = {
           'items': r.items.map((e) => e.toJson()).toList(),
+          'wallMaterial': r.wallMaterial,
+          'floorMaterial': r.floorMaterial,
+          'ceilingMaterial': r.ceilingMaterial,
         };
       }
     }
@@ -279,6 +306,7 @@ class RemotePropertiesRepository implements PropertiesRepository {
     int? livingRooms,
     double? budgetByn,
     String? goal,
+    PropertyTenure? tenure,
     bool isDraft = true,
   }) async {
     final created = await _client.post<Map<String, dynamic>>(
@@ -287,6 +315,8 @@ class RemotePropertiesRepository implements PropertiesRepository {
         'name': name,
         'address': address,
         'property_type': PropertyMapper.typeToApi(type),
+        'tenure': tenure?.name,
+        'area_sqm': areaSqm,
       },
     );
     final propertyId = '${created['id']}';
@@ -312,6 +342,7 @@ class RemotePropertiesRepository implements PropertiesRepository {
       livingRooms: livingRooms,
       budgetByn: budgetByn,
       goal: goal,
+      tenure: tenure,
       isDraft: isDraft,
       selected: true,
     );
@@ -349,6 +380,56 @@ class RemotePropertiesRepository implements PropertiesRepository {
   }
 
   @override
+  Future<Property> updateProperty(Property property) async {
+    if (!_isRemoteId(property.id)) return property;
+    final data = await _client.patch<Map<String, dynamic>>(
+      '${ApiConfig.apiPrefix}/properties/${property.id}',
+      data: {
+        'name': property.name,
+        'address': property.address,
+        'property_type': PropertyMapper.typeToApi(property.type),
+        'tenure': property.tenure?.name,
+        'area_sqm': property.areaSqm,
+      },
+    );
+    return property.copyWith(
+      name: data['name']?.toString() ?? property.name,
+      type: PropertyMapper.typeFromApi(data['property_type']?.toString()),
+      tenure: PropertyMapper.tenureFromApi(data['tenure']?.toString()),
+      address: data['address']?.toString(),
+      areaSqm: _asDouble(data['area_sqm']) ?? property.areaSqm,
+    );
+  }
+
+  @override
+  Future<Room> updateRoom({
+    required String propertyId,
+    required Room room,
+  }) async {
+    if (!_isRemoteId(room.id)) return room;
+    final data = await _client.patch<Map<String, dynamic>>(
+      '${ApiConfig.apiPrefix}/rooms/${room.id}',
+      data: {
+        'name': room.name,
+        'room_type': room.kind,
+        'description': room.description,
+        'width_m': room.widthM,
+        'length_m': room.lengthM,
+        'height_m': room.heightM,
+        'style_preference': room.stylePreference,
+        'wall_material': room.wallMaterial,
+        'floor_material': room.floorMaterial,
+        'ceiling_material': room.ceilingMaterial,
+      },
+    );
+    return PropertyMapper.roomFromApi(
+      data,
+      items: room.items,
+      photoPaths: room.photoPaths,
+    );
+  }
+
+  @override
   Future<void> deleteProperty(String id) async {
     if (_isRemoteId(id)) {
       await _client.delete('${ApiConfig.apiPrefix}/properties/$id');
@@ -358,5 +439,16 @@ class RemotePropertiesRepository implements PropertiesRepository {
         Map<String, dynamic>.from(overlay['properties'] as Map? ?? {});
     props.remove(id);
     await _writeOverlay({...overlay, 'properties': props});
+  }
+
+  static PropertyTenure? _tenureFromOverlay(dynamic value) => switch (value) {
+        'owned' => PropertyTenure.owned,
+        'rented' => PropertyTenure.rented,
+        _ => null,
+      };
+
+  static double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse('$value');
   }
 }

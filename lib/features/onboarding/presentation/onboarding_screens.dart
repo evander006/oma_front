@@ -15,6 +15,7 @@ class OnboardingDraft {
     required this.name,
     this.area,
     this.rooms,
+    this.tenure,
     this.skipped = false,
   });
 
@@ -22,6 +23,7 @@ class OnboardingDraft {
   final String name;
   final double? area;
   final int? rooms;
+  final PropertyTenure? tenure;
   final bool skipped;
 
   OnboardingDraft copyWith({
@@ -29,6 +31,7 @@ class OnboardingDraft {
     String? name,
     double? area,
     int? rooms,
+    PropertyTenure? tenure,
     bool? skipped,
   }) {
     return OnboardingDraft(
@@ -36,6 +39,7 @@ class OnboardingDraft {
       name: name ?? this.name,
       area: area ?? this.area,
       rooms: rooms ?? this.rooms,
+      tenure: tenure ?? this.tenure,
       skipped: skipped ?? this.skipped,
     );
   }
@@ -152,6 +156,7 @@ class OnboardingHousingScreen extends StatefulWidget {
 
 class _OnboardingHousingScreenState extends State<OnboardingHousingScreen> {
   PropertyType _type = PropertyType.apartment;
+  PropertyTenure? _tenure;
   int _rooms = 2;
   final _area = TextEditingController(text: '56');
 
@@ -163,9 +168,14 @@ class _OnboardingHousingScreenState extends State<OnboardingHousingScreen> {
 
   OnboardingDraft _draft() => OnboardingDraft(
         type: _type,
-        name: _type == PropertyType.apartment ? 'Моя квартира' : 'Дом за городом',
+        name: switch (_type) {
+          PropertyType.apartment => 'Моя квартира',
+          PropertyType.house => 'Мой дом',
+          PropertyType.dacha => 'Моя дача',
+        },
         area: double.tryParse(_area.text.replaceAll(',', '.')),
         rooms: _rooms,
+        tenure: _tenure,
       );
 
   @override
@@ -203,6 +213,33 @@ class _OnboardingHousingScreenState extends State<OnboardingHousingScreen> {
           title: 'Дом',
           subtitle: 'Частный или загородный дом',
           onTap: () => setState(() => _type = PropertyType.house),
+        ),
+        _HousingTypeCard(
+          selected: _type == PropertyType.dacha,
+          icon: Icons.cottage_outlined,
+          title: 'Дача',
+          subtitle: 'Сезонное или загородное жильё',
+          onTap: () => setState(() => _type = PropertyType.dacha),
+        ),
+        Text('Это жильё…', style: OmaType.medium(14, OmaColors.ink)),
+        Row(
+          children: [
+            Expanded(
+              child: OmaChoiceChip(
+                label: 'Моё',
+                selected: _tenure == PropertyTenure.owned,
+                onTap: () => setState(() => _tenure = PropertyTenure.owned),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OmaChoiceChip(
+                label: 'Арендую',
+                selected: _tenure == PropertyTenure.rented,
+                onTap: () => setState(() => _tenure = PropertyTenure.rented),
+              ),
+            ),
+          ],
         ),
         DomLabeledField(
           label: 'Количество жилых комнат',
@@ -414,6 +451,7 @@ class _OnboardingNeedsScreenState extends State<OnboardingNeedsScreen> {
       await cubit.addDraft(
         name: draft?.name ?? 'Дом за городом',
         type: draft?.type ?? PropertyType.house,
+        tenure: draft?.tenure,
       );
       if (!mounted) return;
       context.go(AppRoutes.onboardingDraft);
@@ -426,6 +464,7 @@ class _OnboardingNeedsScreenState extends State<OnboardingNeedsScreen> {
       livingRooms: draft?.rooms,
       budgetByn: 1000,
       goal: _selected.join(', '),
+      tenure: draft?.tenure,
     );
     if (!mounted) return;
     context.go(AppRoutes.myHome);

@@ -7,12 +7,20 @@ abstract final class PropertyMapper {
   static PropertyType typeFromApi(String? raw) {
     final v = (raw ?? '').toLowerCase();
     if (v.contains('house') || v.contains('дом')) return PropertyType.house;
+    if (v.contains('dacha') || v.contains('дач')) return PropertyType.dacha;
     return PropertyType.apartment;
   }
 
   static String typeToApi(PropertyType type) => switch (type) {
         PropertyType.apartment => 'apartment',
         PropertyType.house => 'house',
+        PropertyType.dacha => 'dacha',
+      };
+
+  static PropertyTenure? tenureFromApi(String? raw) => switch (raw) {
+        'owned' => PropertyTenure.owned,
+        'rented' => PropertyTenure.rented,
+        _ => null,
       };
 
   static Property propertyFromApi(
@@ -23,6 +31,7 @@ abstract final class PropertyMapper {
     int? livingRooms,
     double? budgetByn,
     String? goal,
+    PropertyTenure? tenure,
     bool isDraft = false,
   }) {
     return Property(
@@ -31,10 +40,12 @@ abstract final class PropertyMapper {
       type: typeFromApi(json['property_type']?.toString()),
       rooms: rooms,
       address: json['address']?.toString(),
-      areaSqm: areaSqm,
+      areaSqm: areaSqm ?? _num(json['area_sqm']),
       livingRooms: livingRooms,
       budgetByn: budgetByn,
       goal: goal,
+      tenure: tenure ?? tenureFromApi(json['tenure']?.toString()),
+      completionPercent: (json['completion_percent'] as num?)?.toInt() ?? 0,
       isDraft: isDraft,
       selected: selected,
     );
@@ -56,6 +67,9 @@ abstract final class PropertyMapper {
       heightM: _num(json['height_m']),
       stylePreference: json['style_preference']?.toString(),
       description: json['description']?.toString(),
+      wallMaterial: json['wall_material']?.toString(),
+      floorMaterial: json['floor_material']?.toString(),
+      ceilingMaterial: json['ceiling_material']?.toString(),
     );
   }
 

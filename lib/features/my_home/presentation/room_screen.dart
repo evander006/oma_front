@@ -49,17 +49,11 @@ class RoomScreen extends StatelessWidget {
         DomBreadcrumb('${property.name} / ${room.name}'),
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
-          child: Image.asset(
+          child: _roomImage(
             photo,
             height: 180,
             width: double.infinity,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(
-              height: 180,
-              color: OmaColors.blueSoft,
-              alignment: Alignment.center,
-              child: const Icon(Icons.image_outlined, color: OmaColors.blue),
-            ),
           ),
         ),
         Text(
@@ -72,6 +66,26 @@ class RoomScreen extends StatelessWidget {
           onPressed: () =>
               context.push(AppRoutes.roomEditPath(propertyId, roomId)),
         ),
+        if (_roomFacts(room).isNotEmpty)
+          DomCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Характеристики помещения', style: OmaType.bold(15, OmaColors.ink)),
+                const SizedBox(height: 8),
+                for (final fact in _roomFacts(room))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 5),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(fact.$1, style: OmaType.regular(12, OmaColors.muted))),
+                        Text(fact.$2, style: OmaType.medium(12, OmaColors.ink)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         Row(
           children: [
             Expanded(
@@ -139,7 +153,7 @@ class RoomScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Заказ № 261020-014 · 20.10.2026',
+                  'Товар привязан к комнате. Данные заказа появятся после подтверждённой покупки.',
                   style: OmaType.regular(12, OmaColors.muted),
                 ),
                 const SizedBox(height: 8),
@@ -155,11 +169,11 @@ class RoomScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Установка смесителя',
+                              'Услуги установки',
                               style: OmaType.medium(14, OmaColors.ink),
                             ),
                             Text(
-                              'Отдельная услуга · на согласовании',
+                              'Посмотреть состав услуги и оставить заявку',
                               style: OmaType.regular(12, OmaColors.muted),
                             ),
                           ],
@@ -243,6 +257,10 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
   final _type = TextEditingController(text: 'Кухня · вспомогательное');
   final _length = TextEditingController(text: 'Не указана');
   final _width = TextEditingController(text: 'Не указана');
+  final _height = TextEditingController(text: 'Не указана');
+  final _wall = TextEditingController();
+  final _floor = TextEditingController();
+  final _ceiling = TextEditingController();
   Room? _room;
   bool _hydrated = false;
 
@@ -264,6 +282,12 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
       _type.text = found.kind == 'kitchen'
           ? 'Кухня · вспомогательное'
           : found.name;
+      _length.text = found.lengthM?.toString() ?? 'Не указана';
+      _width.text = found.widthM?.toString() ?? 'Не указана';
+      _height.text = found.heightM?.toString() ?? 'Не указана';
+      _wall.text = found.wallMaterial ?? '';
+      _floor.text = found.floorMaterial ?? '';
+      _ceiling.text = found.ceilingMaterial ?? '';
     }
   }
 
@@ -273,6 +297,10 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
     _type.dispose();
     _length.dispose();
     _width.dispose();
+    _height.dispose();
+    _wall.dispose();
+    _floor.dispose();
+    _ceiling.dispose();
     super.dispose();
   }
 
@@ -292,7 +320,15 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
             if (room != null) {
               await context.read<PropertiesCubit>().updateRoom(
                     widget.propertyId,
-                    room.copyWith(name: _name.text.trim()),
+                    room.copyWith(
+                      name: _name.text.trim(),
+                      lengthM: _optionalNumber(_length.text),
+                      widthM: _optionalNumber(_width.text),
+                      heightM: _optionalNumber(_height.text),
+                      wallMaterial: _optionalText(_wall.text),
+                      floorMaterial: _optionalText(_floor.text),
+                      ceilingMaterial: _optionalText(_ceiling.text),
+                    ),
                   );
             }
             if (!context.mounted) return;
@@ -336,19 +372,37 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
             ),
           ],
         ),
+        DomLabeledField(
+          label: 'Высота, м · необязательно',
+          child: DomTextBox(controller: _height, keyboard: TextInputType.number),
+        ),
         Text(
           'Размеры вводятся вручную и не считаются проверенными замерами.',
           style: OmaType.regular(12, OmaColors.muted),
         ),
+        Text('Материалы · если известны', style: OmaType.bold(16, OmaColors.ink)),
+        DomLabeledField(
+          label: 'Стены',
+          child: DomTextBox(controller: _wall),
+        ),
+        DomLabeledField(
+          label: 'Пол',
+          child: DomTextBox(controller: _floor),
+        ),
+        DomLabeledField(
+          label: 'Потолок',
+          child: DomTextBox(controller: _ceiling),
+        ),
+        const DomSoftNote(
+          'Не знаете материал — оставьте поле пустым. Эти данные помогут мастеру подготовиться к работе.',
+        ),
         ClipRRect(
           borderRadius: BorderRadius.circular(10),
-          child: Image.asset(
+          child: _roomImage(
             photo,
             height: 160,
             width: double.infinity,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) =>
-                Container(height: 160, color: OmaColors.blueSoft),
           ),
         ),
         Text(
@@ -385,6 +439,54 @@ class _RoomEditScreenState extends State<RoomEditScreen> {
       ],
     );
   }
+}
+
+double? _optionalNumber(String raw) =>
+    double.tryParse(raw.trim().replaceAll(',', '.'));
+
+String? _optionalText(String raw) {
+  final value = raw.trim();
+  return value.isEmpty ? null : value;
+}
+
+List<(String, String)> _roomFacts(Room room) => [
+      if (room.lengthM != null && room.widthM != null)
+        ('Размер', '${room.lengthM} × ${room.widthM} м'),
+      if (room.heightM != null) ('Высота', '${room.heightM} м'),
+      if (room.wallMaterial != null) ('Стены', room.wallMaterial!),
+      if (room.floorMaterial != null) ('Пол', room.floorMaterial!),
+      if (room.ceilingMaterial != null) ('Потолок', room.ceilingMaterial!),
+    ];
+
+Widget _roomImage(
+  String source, {
+  required double height,
+  required double width,
+  required BoxFit fit,
+}) {
+  Widget error(BuildContext _, Object __, StackTrace? ___) => Container(
+        height: height,
+        width: width,
+        color: OmaColors.blueSoft,
+        alignment: Alignment.center,
+        child: const Icon(Icons.image_outlined, color: OmaColors.blue),
+      );
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    return Image.network(
+      source,
+      height: height,
+      width: width,
+      fit: fit,
+      errorBuilder: error,
+    );
+  }
+  return Image.asset(
+    source,
+    height: height,
+    width: width,
+    fit: fit,
+    errorBuilder: error,
+  );
 }
 
 (Property, Room)? _resolve(
