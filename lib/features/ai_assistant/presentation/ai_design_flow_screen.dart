@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:oma/app/router/app_routes.dart';
 import 'package:oma/core/repositories/ai_chat_repository.dart';
 import 'package:oma/core/repositories/catalog_repository.dart';
+import 'package:oma/features/ai_assistant/domain/budget_parser.dart';
 import 'package:oma/features/cart/cubit/cart_cubit.dart';
 import 'package:oma/features/my_home/cubit/properties_cubit.dart';
 import 'package:oma/shared/models/product.dart';
@@ -89,15 +90,11 @@ class _AiDesignFlowScreenState extends State<AiDesignFlowScreen> {
 
       final ai = context.read<AiChatRepository>();
       final catalog = context.read<CatalogRepository>();
-      final budgetDigits = RegExp(r'(\d[\d\s]*)')
-          .allMatches(_budget ?? '')
-          .map((m) => double.tryParse(m.group(1)!.replaceAll(' ', '')))
-          .whereType<double>()
-          .toList();
+      final maxBudget = maxBudgetBynFromLabel(_budget);
       final result = await ai.recommend(
         prompt: message,
         preferredStyle: _style,
-        maxBudget: budgetDigits.isEmpty ? null : budgetDigits.last,
+        maxBudget: maxBudget,
         categoryIds: _categories.toList(),
       );
       var products = result.products;
@@ -105,7 +102,7 @@ class _AiDesignFlowScreenState extends State<AiDesignFlowScreen> {
         // Fallback: chat, then catalog page — never invent products.
         final chat = await ai.chat(
           message: message,
-          budget: budgetDigits.isEmpty ? null : budgetDigits.last,
+          budget: maxBudget,
           style: _style,
         );
         products = chat.products;
