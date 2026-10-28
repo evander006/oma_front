@@ -39,6 +39,7 @@ class HomeHub(
     private var currentPdf: File? = null
     private var renderer: PdfRenderer? = null
     private var descriptor: ParcelFileDescriptor? = null
+    private var previewBitmap: Bitmap? = null
     private var pageIndex = 0
     private var zoom = 1f
 
@@ -169,7 +170,11 @@ class HomeHub(
         when (screen) {
             "home:add" -> createHome(body)
             "home:passport" -> passport(body)
-            "home:preview" -> preview(body)
+            "home:preview" -> runCatching { preview(body) }.onFailure { error ->
+                closePreview()
+                note(body, "Не удалось открыть PDF: ${error.message ?: "ошибка просмотра"}")
+                button(body, "Вернуться к паспорту") { navigate("home:passport") }
+            }
             "home:3d" -> placeholder3d(body)
             else -> hub(body)
         }
@@ -549,18 +554,32 @@ class HomeHub(
         fun drawPage() {
             val r = renderer ?: return
             val page = r.openPage(pageIndex)
-            val width = (activity.resources.displayMetrics.widthPixels * zoom).toInt().coerceAtLeast(595)
-            val height = (width * page.height.toFloat() / page.width).toInt()
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bitmap.eraseColor(Color.WHITE)
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            page.close()
-            image.setImageBitmap(bitmap)
-            image.layoutParams = LinearLayout.LayoutParams(width, height)
-            horizontal.layoutParams = LinearLayout.LayoutParams(-1, height).apply {
-                leftMargin=dp(8);rightMargin=dp(8)
+            try {
+                val desiredWidth = (activity.resources.displayMetrics.widthPixels * zoom).toInt().coerceAtLeast(595)
+                // Keep a PDF page below 6 MP (~24 MB ARGB) even at maximum zoom.
+                val maxWidth = kotlin.math.sqrt(6_000_000.0 * page.width / page.height).toInt()
+                val width = desiredWidth.coerceAtMost(maxWidth)
+                val height = (width * page.height.toFloat() / page.width).toInt().coerceAtLeast(1)
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                try {
+                    bitmap.eraseColor(Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    image.setImageBitmap(bitmap)
+                    previewBitmap?.recycle()
+                    previewBitmap = bitmap
+                    // HorizontalScrollView is a FrameLayout, not a LinearLayout.
+                    image.layoutParams = android.widget.FrameLayout.LayoutParams(width, height)
+                    horizontal.layoutParams = LinearLayout.LayoutParams(-1, height).apply {
+                        leftMargin=dp(8);rightMargin=dp(8)
+                    }
+                    status.text = "Страница ${pageIndex+1} из ${r.pageCount} · ${String.format(Locale.US,"%.0f",zoom*100)}%"
+                } catch (error: Throwable) {
+                    bitmap.recycle()
+                    throw error
+                }
+            } finally {
+                page.close()
             }
-            status.text = "Страница ${pageIndex+1} из ${r.pageCount} · ${String.format(Locale.US,"%.0f",zoom*100)}%"
         }
         val controls = LinearLayout(activity).apply { orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER }
         fun control(caption: String, action: () -> Unit) = text(caption, 14f, true, blue).apply {gravity=Gravity.CENTER;setOnClickListener{action()} }
@@ -578,5 +597,6 @@ class HomeHub(
     fun closePreview() {
         runCatching { renderer?.close() }; renderer=null
         runCatching { descriptor?.close() }; descriptor=null
+        previewBitmap?.recycle();previewBitmap=null
     }
 }
