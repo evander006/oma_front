@@ -1142,7 +1142,14 @@ class Storefront(
         val phrases = terms.map { it.trim().lowercase(Locale.ROOT) }
             .filter { it.length >= 3 }.distinct().take(12)
         if (phrases.isEmpty()) return emptyList()
-        val scored = products.asSequence().mapNotNull { item ->
+        val database = catalogDb
+        val candidates = if (database != null) {
+            phrases.flatMap { term ->
+                runCatching { database.page(search = term, limit = 35).records }
+                    .getOrDefault(emptyList())
+            }.distinctBy { it.id }
+        } else products
+        val scored = candidates.asSequence().mapNotNull { item ->
             val title = item.title.lowercase(Locale.ROOT)
             val subcategory = item.subcategory.lowercase(Locale.ROOT)
             val category = item.category.lowercase(Locale.ROOT)
