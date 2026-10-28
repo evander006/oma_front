@@ -104,7 +104,7 @@ internal class LaunchOnboarding(
             isVerticalScrollBarEnabled = false
             setBackgroundColor(Color.WHITE)
         }
-        scroll.addView(content, FrameLayout.LayoutParams(-1, -1))
+        scroll.addView(content, FrameLayout.LayoutParams(-1, -2))
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
         root.addView(indicators, LinearLayout.LayoutParams(-1, dp(30)).apply {
