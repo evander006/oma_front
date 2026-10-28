@@ -12,19 +12,20 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 object Style {
-    const val BRAND_RED = 0xffdf0a15.toInt()
-    const val BRAND_RED_DARK = 0xffb90710.toInt()
-    const val BRAND_RED_SOFT = 0xffffecee.toInt()
+    // OMA palette (names kept for compatibility): blue brand, orange accent.
+    const val BRAND_RED = 0xff0059aa.toInt()
+    const val BRAND_RED_DARK = 0xff00447f.toInt()
+    const val BRAND_RED_SOFT = 0xffe6eff8.toInt()
     // Kept as a compatibility alias for existing feature modules.
     const val BLUE = BRAND_RED
-    const val DARK = 0xff252a2e.toInt()
-    const val MUTED = 0xff697177.toInt()
+    const val DARK = 0xff2b3a4a.toInt()
+    const val MUTED = 0xff8a9399.toInt()
     const val PALE = BRAND_RED_SOFT
-    const val BACK = 0xfff5f5f3.toInt()
+    const val BACK = 0xfff7f7f7.toInt()
     const val SURFACE = 0xffffffff.toInt()
-    const val BORDER = 0xffdedfdd.toInt()
-    const val PRESSED = 0xfff1f1ef.toInt()
-    const val ORANGE = 0xfffb981e.toInt()
+    const val BORDER = 0xffe3e5e7.toInt()
+    const val PRESSED = 0xfff0f2f4.toInt()
+    const val ORANGE = 0xfff7941d.toInt()
 
     fun dp(c: Context, v: Int): Int = (v * c.resources.displayMetrics.density + .5f).toInt()
     fun bg(color: Int, radius: Float = 14f, stroke: Int? = null): GradientDrawable =

@@ -24,7 +24,7 @@ class UnifiedActivity : Activity() {
     private val faint = Style.BORDER
     private val surface = Style.BACK
     private val omaBlue = Style.BRAND_RED
-    private val selected = Style.BRAND_RED
+    private val selected = Style.ORANGE
     private lateinit var api: Api
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
         { openHomeHub() }, { openCatalogPhotoPicker() }) }
@@ -267,10 +267,6 @@ class UnifiedActivity : Activity() {
             }
             col.addView(iconFrame,LinearLayout.LayoutParams(dp(35),dp(31)))
             col.addView(label(name,10f,false,color).apply{gravity=Gravity.CENTER})
-            col.addView(View(this).apply {
-                background=Style.bg(if(tab==name) Style.BRAND_RED else Color.TRANSPARENT,2f)
-                importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            },LinearLayout.LayoutParams(dp(26),dp(3)).apply{topMargin=dp(3)})
             bottom.addView(col,LinearLayout.LayoutParams(0,-1,1f))
         }
         if (screen == "" && tab == "Корзина" && shop.cartCount() > 0) {
@@ -520,7 +516,7 @@ class UnifiedActivity : Activity() {
         title("Цифровой дом")
         row("Паспорт дома","receipt",{go("passport")},true)
         row("3D-модель дома","box",{go("3d")},true)
-        row("Поиск по фото","search",{go("smart")},true)
+        row("Поиск по фото","camera",{go("smart")},true)
         row("Знающий мастер","hammer",{go("master:hub")},true)
     }
     private fun property(mode:String) {

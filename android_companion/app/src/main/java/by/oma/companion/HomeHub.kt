@@ -395,9 +395,8 @@ class HomeHub(
             button(body, "Добавить объект") { navigate("home:add") }
             return
         }
-        note(body, "Объект «${home.name}». Выберите комнату слева. Вращение и наклон — одним пальцем, масштаб — двумя; двойное касание возвращает лучший обзор.")
-        val shell=LinearLayout(activity).apply {orientation=LinearLayout.HORIZONTAL;setBackgroundColor(Color.WHITE)}
-        val menu=LinearLayout(activity).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(231,241,248))}
+        note(body, "Объект «${home.name}». Выберите комнату сверху. Вращение и наклон — одним пальцем, масштаб — двумя; двойное касание возвращает лучший обзор.")
+        val menu=LinearLayout(activity).apply {orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(4),dp(8),dp(10))}
         val viewer=Room3DView(activity).apply {
             contentDescription="Интерактивная трёхмерная модель объекта ${home.name}"
         }
@@ -425,18 +424,20 @@ class HomeHub(
             for(i in 0 until menu.childCount){
                 val child=menu.getChildAt(i) as? TextView ?: continue
                 child.setTextColor(if(child.text==room.name)Color.WHITE else ink)
-                child.setBackgroundColor(if(child.text==room.name)blue else Color.TRANSPARENT)
+                child.background=Style.bg(if(child.text==room.name)blue else Color.WHITE,6f,if(child.text==room.name)null else Style.BORDER)
             }
         }
         home.rooms.forEach { room ->
-            menu.addView(text(room.name,12.5f,true).apply {
-                gravity=Gravity.CENTER;setPadding(dp(5),dp(7),dp(5),dp(7));setOnClickListener{select(room)}
-            },LinearLayout.LayoutParams(-1,dp(58)))
+            menu.addView(text(room.name,13.5f,true).apply {
+                gravity=Gravity.CENTER;maxLines=1;setPadding(dp(16),0,dp(16),0);setOnClickListener{select(room)}
+            },LinearLayout.LayoutParams(-2,dp(40)).apply{rightMargin=dp(8)})
         }
-        val roomScroll=ScrollView(activity).apply {addView(menu,android.widget.FrameLayout.LayoutParams(-1,-2))}
-        shell.addView(roomScroll,LinearLayout.LayoutParams(dp(105),dp(590)))
-        shell.addView(viewer,LinearLayout.LayoutParams(0,dp(590),1f))
-        body.addView(shell,LinearLayout.LayoutParams(-1,dp(590)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
+        val roomScroll=android.widget.HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled=false
+            addView(menu,android.widget.FrameLayout.LayoutParams(-2,-2))
+        }
+        body.addView(roomScroll,LinearLayout.LayoutParams(-1,-2))
+        body.addView(viewer,LinearLayout.LayoutParams(-1,dp(540)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
         home.rooms.firstOrNull()?.let{select(it)}
         if(home.rooms.isEmpty()) note(body,"В паспорте нет помещений. Создайте объект заново с перечнем комнат.")
         note(body,"OpenGL-сцена использует реальные ширину, длину, высоту и стены проёмов из паспорта. Освещение, масштаб напольных линий и расстановка покупок помогают оценить пропорции. Если размеры не заполнены, они приближённо вычисляются из площади; сложная форма комнаты требует обмерного плана.")

@@ -286,10 +286,10 @@ class Storefront(
             setText(searchQuery.takeIf { it.isNotEmpty() } ?: "")
         }
         container.addView(input, LinearLayout.LayoutParams(0, dp(45), 1f))
-        container.addView(text("▣", 21f, true, blue).apply {
-            contentDescription="Поиск по фото";gravity=Gravity.CENTER
+        container.addView(LineIcon(activity, "camera", blue).apply {
+            contentDescription="Поиск по фото"
             setOnClickListener { pickPhoto() }
-        }, LinearLayout.LayoutParams(dp(34), dp(40)))
+        }, LinearLayout.LayoutParams(dp(30), dp(30)))
         input.setOnEditorActionListener { _, _, _ ->
             searchQuery = input.text.toString().trim()
             pageSize = 20
@@ -632,12 +632,17 @@ class Storefront(
         details.addView(right,LinearLayout.LayoutParams(0,-2,1f))
         line.addView(details,LinearLayout.LayoutParams(
             activity.resources.displayMetrics.widthPixels - dp(24),dp(166)))
-        line.addView(button("♡",{
+        fun sideAction(glyph:String,name:String,fill:Int,onClick:()->Unit)=LinearLayout(activity).apply {
+            gravity=Gravity.CENTER;setBackgroundColor(fill);contentDescription=name
+            isClickable=true;isFocusable=true;setOnClickListener{onClick()}
+            addView(LineIcon(activity,glyph,Color.WHITE),LinearLayout.LayoutParams(dp(34),dp(34)))
+        }
+        line.addView(sideAction("heart","В избранное",blue){
             val set=favorites();set.add(p.id)
             prefs.edit().putStringSet("favorites",set).apply()
             addCart(p.id,-qty)
-        }),LinearLayout.LayoutParams(dp(78),dp(160)))
-        line.addView(button("▤", {addCart(p.id,-qty)},Color.rgb(204,51,18)),
+        },LinearLayout.LayoutParams(dp(78),dp(160)))
+        line.addView(sideAction("trash","Удалить",Color.rgb(204,51,18)){addCart(p.id,-qty)},
             LinearLayout.LayoutParams(dp(78),dp(160)))
         view.addView(line)
         body.addView(view,LinearLayout.LayoutParams(-1,dp(167)).apply {

@@ -43,6 +43,8 @@ class LineIcon(context: Context, private val shape: String, private val tint: In
             "box"->{canvas.chain(2f,7f,12f,2f,22f,7f,12f,12f,2f,7f);canvas.chain(2f,7f,2f,18f,12f,23f,22f,18f,22f,7f);canvas.chain(12f,12f,12f,23f)}
             "hammer"->{canvas.chain(3f,21f,15f,9f);canvas.chain(12f,4f,16f,2f,22f,8f,20f,12f,15f,7f,12f,4f)}
             "back"->{canvas.chain(16f,4f,8f,12f,16f,20f)}
+            "camera"->{canvas.chain(2f,8f,2f,20f,22f,20f,22f,8f,17f,8f,15f,5f,9f,5f,7f,8f,2f,8f);canvas.drawCircle(12f,13.5f,4f,pen)}
+            "trash"->{canvas.chain(3f,6f,21f,6f);canvas.chain(9f,6f,9f,3f,15f,3f,15f,6f);canvas.chain(5f,6f,6f,22f,18f,22f,19f,6f);canvas.chain(10f,10f,10f,18f);canvas.chain(14f,10f,14f,18f)}
             "chevron"->{canvas.chain(9f,5f,16f,12f,9f,19f)}
             else->{canvas.drawCircle(12f,12f,10f,pen)}
         }
