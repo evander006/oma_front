@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix/pdf-preview-camera-catalog-photo-20261028
     paths:
       - 'android_companion/**'
       - '.github/workflows/companion-android.yml'
