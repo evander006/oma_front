@@ -89,8 +89,15 @@ class _LaunchIntroScreenState extends State<LaunchIntroScreen> {
                 children: [
                   Row(
                     children: [
-                      Text('ОМА. Дом', style: OmaType.bold(20, OmaColors.blue)),
-                      const Spacer(),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text('ОМА. Дом',
+                              style: OmaType.bold(20, OmaColors.blue)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       TextButton(
                         onPressed: _finish,
                         child: Text('Пропустить',
