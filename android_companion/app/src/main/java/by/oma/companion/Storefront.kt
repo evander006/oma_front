@@ -664,7 +664,8 @@ class Storefront(
                 product(id)?.let { p ->
                     lines.put(JSONObject().put("sku",p.id).put("title",p.title)
                         .put("quantity",quantity).put("unit",p.unit).put("price",p.price)
-                        .put("brand",p.brand).put("date",purchasedAt))
+                        .put("brand",p.brand).put("category",p.category)
+                        .put("subcategory",p.subcategory).put("date",purchasedAt))
                 }
             }
             record.put(JSONObject().put("sum",total()).put("date",purchasedAt).put("items",lines))

@@ -355,9 +355,49 @@ class HomeHub(
     private fun placeholder3d(body: LinearLayout) {
         val home = selectedHome()
         heading(body, "3D-модель")
-        note(body, if (home == null) "Сначала добавьте объект."
-            else "Выбран объект «${home.name}». Редактор точной 3D-модели будет следующим этапом; паспорт и структура помещений уже сохранены.")
-        if (home == null) button(body, "Добавить объект") { navigate("home:add") }
+        if (home == null) {
+            note(body, "Сначала добавьте объект.")
+            button(body, "Добавить объект") { navigate("home:add") }
+            return
+        }
+        note(body, "Объект «${home.name}». Выберите комнату слева. Модель строится из площади помещения, а покупки появляются только там, куда они назначены в паспорте.")
+        val shell=LinearLayout(activity).apply {orientation=LinearLayout.HORIZONTAL;setBackgroundColor(Color.WHITE)}
+        val menu=LinearLayout(activity).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(231,241,248))}
+        val viewer=Room3DView(activity)
+        val bought=purchases()
+        val places=locations()
+        fun productsIn(room:Room):List<Room3DView.Product>{
+            val result=mutableListOf<Room3DView.Product>()
+            for(i in 0 until bought.length()){
+                val item=bought.optJSONObject(i)?:continue
+                if(places.optString(purchaseKey(home,item))==room.name){
+                    result+=Room3DView.Product(item.optString("title","Товар"),item.optInt("quantity",1),item.optString("sku"))
+                }
+            }
+            return result
+        }
+        fun select(room:Room){
+            viewer.roomName=room.name
+            viewer.roomArea=room.area
+            viewer.products=productsIn(room)
+            for(i in 0 until menu.childCount){
+                val child=menu.getChildAt(i) as? TextView ?: continue
+                child.setTextColor(if(child.text==room.name)Color.WHITE else ink)
+                child.setBackgroundColor(if(child.text==room.name)blue else Color.TRANSPARENT)
+            }
+        }
+        home.rooms.forEach { room ->
+            menu.addView(text(room.name,12.5f,true).apply {
+                gravity=Gravity.CENTER;setPadding(dp(5),dp(7),dp(5),dp(7));setOnClickListener{select(room)}
+            },LinearLayout.LayoutParams(-1,dp(58)))
+        }
+        val roomScroll=ScrollView(activity).apply {addView(menu,ScrollView.LayoutParams(-1,-2))}
+        shell.addView(roomScroll,LinearLayout.LayoutParams(dp(105),dp(590)))
+        shell.addView(viewer,LinearLayout.LayoutParams(0,dp(590),1f))
+        body.addView(shell,LinearLayout.LayoutParams(-1,dp(590)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
+        home.rooms.firstOrNull()?.let{select(it)}
+        if(home.rooms.isEmpty()) note(body,"В паспорте нет помещений. Создайте объект заново с перечнем комнат.")
+        note(body,"Для демонстрации приложение само строит более подробные модели аэрогриля, табурета/стула и светильника. Остальные покупки отображаются как типизированные объёмные объекты. Точная форма квартиры, двери и окна пока ориентировочные: для цифрового двойника нужен обмерный план.")
     }
 
     private fun locations(): JSONObject = runCatching {

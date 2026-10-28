@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0-home-passport-pdf"
+        versionCode = 7
+        versionName = "0.7.0-procedural-room-models"
     }
     buildTypes {
         release { isMinifyEnabled = false }
