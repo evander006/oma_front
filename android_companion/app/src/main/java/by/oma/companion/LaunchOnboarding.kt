@@ -27,22 +27,22 @@ internal class LaunchOnboarding(
 
     private val slides = listOf(
         Slide(
-            R.drawable.oma_story_passport,
+            R.drawable.oma_onb_passport,
             "Всё о вашем доме — в одном месте",
             "Храните сведения о комнатах и покупках, просматривайте паспорт объекта и сохраняйте его в PDF."
         ),
         Slide(
-            R.drawable.oma_story_interior,
+            R.drawable.oma_onb_3d,
             "Представьте свой дом в 3D",
             "Просматривайте объёмную модель комнат и расположение добавленных товаров в вашем доме."
         ),
         Slide(
-            R.drawable.oma_story_visual,
+            R.drawable.oma_onb_photo,
             "Нашли идею? Найдите товар",
             "Сфотографируйте предмет или выберите фото, чтобы найти похожие товары в каталоге ОМА."
         ),
         Slide(
-            R.drawable.oma_story_service,
+            R.drawable.oma_onb_master,
             "Помощь специалиста — рядом",
             "Выбирайте мастеров для ремонта, монтажа и других задач по дому."
         )
@@ -170,14 +170,13 @@ internal class LaunchOnboarding(
 
         val screenHeightDp = activity.resources.displayMetrics.heightPixels /
             activity.resources.displayMetrics.density
-        val imageHeight = if (screenHeightDp < 650f) 168 else 242
-        val imageWidth = if (screenHeightDp < 650f) 158 else 216
+        // Artwork already carries its own rounded light-blue card (aspect 720:996).
+        val imageHeight = if (screenHeightDp < 650f) 250 else 380
+        val imageWidth = imageHeight * 720 / 996
         val picture = ImageView(activity).apply {
             setImageResource(slide.image)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = slide.title
-            background = Style.bg(Style.BRAND_RED_SOFT, 24f)
-            clipToOutline = true
         }
         content.addView(picture, LinearLayout.LayoutParams(dp(imageWidth), dp(imageHeight)))
         content.addView(text(slide.title, 25f, Style.DARK, true).apply {
