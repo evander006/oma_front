@@ -6,11 +6,11 @@ android {
     namespace = "by.oma.companion"
     compileSdk = 35
     defaultConfig {
-        applicationId = "by.oma.companion.demo"
+        applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-demo"
+        versionCode = 2
+        versionName = "0.2.0-unified-demo"
     }
     buildTypes {
         release { isMinifyEnabled = false }
