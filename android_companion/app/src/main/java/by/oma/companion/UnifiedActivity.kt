@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -31,7 +32,8 @@ class UnifiedActivity : Activity() {
     private val selected = Style.ORANGE
     private lateinit var api: Api
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
-        { openHomeHub() }, { openCatalogPhotoPicker() }, { screen == "shop:photo" }) }
+        { openHomeHub() }, { openCatalogPhotoPicker() }, { screen == "shop:photo" },
+        { route -> launchStoryFeature(route) }) }
     private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
     private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
     private lateinit var body: LinearLayout
@@ -51,6 +53,9 @@ class UnifiedActivity : Activity() {
     private val takeCatalogPhoto = 7243
     private var pendingCameraUri: Uri? = null
     private var web: WebView? = null
+    private var introActive = true
+    private var introPage = 0
+    private var launchIntro: LaunchOnboarding? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +64,8 @@ class UnifiedActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         api = Api(this)
         pendingCameraUri = savedInstanceState?.getString("pendingCameraUri")?.let(Uri::parse)
+        introActive = savedInstanceState?.getBoolean("introActive") ?: true
+        introPage = savedInstanceState?.getInt("introPage") ?: 0
         shop.loadExistingCatalog()
         contractorId = prefs.getInt("contractor", 0)
         masterId = contractorId
@@ -78,15 +85,40 @@ class UnifiedActivity : Activity() {
         out.putBoolean("pendingFeatureLogin", pendingFeatureLogin)
         out.putString("featureOriginScreen", featureOriginScreen)
         out.putString("pendingCameraUri", pendingCameraUri?.toString())
+        out.putBoolean("introActive", introActive)
+        out.putInt("introPage", launchIntro?.currentPage ?: introPage)
         super.onSaveInstanceState(out)
     }
     override fun onDestroy() { web?.destroy(); homeHub.closePreview(); api.close(); super.onDestroy() }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (introActive && launchIntro?.onTouchEvent(event) == true) return true
+        return super.dispatchTouchEvent(event)
+    }
     private fun dp(n:Int):Int = Style.dp(this,n)
     private fun signedIn():Boolean = prefs.getBoolean("registered",false)
     private fun notice(s:String) { Toast.makeText(this,s,Toast.LENGTH_LONG).show() }
     private fun active(id:Int):Boolean = generation == id && !isFinishing
     private fun go(s:String) { screen=s; featurePopupOpen=false; render() }
     private fun tabTo(s:String) { tab=s; screen=""; featurePopupOpen=false; render() }
+
+    private fun finishLaunchIntro() {
+        if (!introActive) return
+        introActive = false
+        launchIntro = null
+        tab = "Главная"
+        screen = ""
+        render()
+    }
+
+    private fun launchStoryFeature(route: String) {
+        if (route == "photo") {
+            openCatalogPhotoPicker()
+        } else {
+            // Reuse existing auth gating, home, 3D and masters destinations.
+            featureOriginScreen = route
+            chooseFeature(route)
+        }
+    }
     private fun openFeaturePromo() {
         featureOriginScreen = screen
         if (!signedIn()) {
@@ -158,6 +190,9 @@ class UnifiedActivity : Activity() {
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
         when {
+            introActive -> {
+                if (introPage > 0) launchIntro?.previous() else finishLaunchIntro()
+            }
             featurePopupOpen -> { featurePopupOpen = false; render() }
             screen == "auth" && pendingFeatureLogin -> {
                 pendingFeatureLogin = false
@@ -246,6 +281,17 @@ class UnifiedActivity : Activity() {
         target.addView(label(text,14f).apply {setPadding(dp(17),dp(15),dp(12),dp(15))})
     }
     private fun render() {
+        if (introActive) {
+            if (launchIntro == null) {
+                launchIntro = LaunchOnboarding(
+                    this,
+                    initialPage = introPage,
+                    onPageChanged = { introPage = it },
+                    onComplete = { finishLaunchIntro() }
+                ).also { it.show() }
+            }
+            return
+        }
         generation++
         web?.destroy();web=null
         val root=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(surface)}
