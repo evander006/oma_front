@@ -94,7 +94,8 @@ class Room3DView(context: Context) : GLSurfaceView(context) {
         gestureDetector.onTouchEvent(event)
         if(!scaleDetector.isInProgress){
             when(event.actionMasked){
-                MotionEvent.ACTION_DOWN->{lastX=event.x;lastY=event.y}
+                // Keep the page ScrollView from stealing vertical drags while orbiting.
+                MotionEvent.ACTION_DOWN->{lastX=event.x;lastY=event.y;parent?.requestDisallowInterceptTouchEvent(true)}
                 MotionEvent.ACTION_MOVE->{
                     scene.yaw=(scene.yaw+(event.x-lastX)*.28f)%360f
                     scene.pitch=(scene.pitch+(event.y-lastY)*.20f).coerceIn(10f,78f)

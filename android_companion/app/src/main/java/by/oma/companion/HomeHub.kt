@@ -206,6 +206,7 @@ class HomeHub(
         functionRow(body, "Паспорт дома", "Данные, помещения, покупки и PDF") { navigate("home:passport") }
         functionRow(body, "3D-модель дома", "Пространственная модель выбранного объекта") { navigate("home:3d") }
         functionRow(body, "Знающий мастер", "Подбор мастера и заявка на работы") { navigate("master:hub") }
+        functionRow(body, "Секонд-хэнд", "Продайте вещи, которые уже есть дома") { navigate("resale:hub") }
     }
 
     private fun functionRow(body: LinearLayout, name: String, subtitle: String, action: () -> Unit) {
@@ -400,7 +401,7 @@ class HomeHub(
             button(body, "Добавить объект") { navigate("home:add") }
             return
         }
-        note(body, "Объект «${home.name}». Выберите комнату сверху. Вращение и наклон — одним пальцем, масштаб — двумя; двойное касание возвращает лучший обзор.")
+        note(body, "«${home.name}» — выберите комнату.")
         val menu=LinearLayout(activity).apply {orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(4),dp(8),dp(10))}
         val viewer=Room3DView(activity).apply {
             contentDescription="Интерактивная трёхмерная модель объекта ${home.name}"
@@ -445,7 +446,7 @@ class HomeHub(
         body.addView(viewer,LinearLayout.LayoutParams(-1,dp(540)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
         home.rooms.firstOrNull()?.let{select(it)}
         if(home.rooms.isEmpty()) note(body,"В паспорте нет помещений. Создайте объект заново с перечнем комнат.")
-        note(body,"OpenGL-сцена использует реальные ширину, длину, высоту и стены проёмов из паспорта. Освещение, масштаб напольных линий и расстановка покупок помогают оценить пропорции. Если размеры не заполнены, они приближённо вычисляются из площади; сложная форма комнаты требует обмерного плана.")
+        note(body,"Вращайте одним пальцем, масштаб — двумя. Двойное касание — исходный вид.")
     }
 
     private fun locations(): JSONObject = runCatching {

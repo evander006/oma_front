@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.16.0-claude-ui"
+        versionCode = 17
+        versionName = "0.17.0-claude-resale"
     }
     buildTypes {
         release { isMinifyEnabled = false }

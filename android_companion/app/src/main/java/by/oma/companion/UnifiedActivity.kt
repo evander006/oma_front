@@ -36,6 +36,7 @@ class UnifiedActivity : Activity() {
         { route -> launchStoryFeature(route) }) }
     private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
     private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
+    private val resaleHub by lazy { ResaleHub(this,{go(it)},{ shop.confirmedPurchases() }) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
     private var tab = "Профиль"
@@ -193,6 +194,7 @@ class UnifiedActivity : Activity() {
                 if (screen == "home:hub") { screen="";render() } else go("home:hub")
             }
             screen.startsWith("master:") -> go(masterHub.back(screen))
+            screen.startsWith("resale:") -> go(resaleHub.back(screen))
             screen in listOf("3d", "passport", "master", "smart") -> {
                 screen = featureOriginScreen
                 featurePopupOpen = signedIn()
@@ -296,7 +298,8 @@ class UnifiedActivity : Activity() {
             "auth"->"Вход и регистрация";"digital"->"Новые функции"
             "shop:product","shop:category","shop:listing","shop:search","shop:photo","shop:checkout" -> shop.heading(screen)
             else -> if (screen.startsWith("home:")) homeHub.title(screen)
-            else if(screen.startsWith("master:"))masterHub.title(screen) else when(screen) {
+            else if(screen.startsWith("master:"))masterHub.title(screen)
+            else if(screen.startsWith("resale:"))resaleHub.title(screen) else when(screen) {
             "3d"->"3D-модель дома";"passport"->"Паспорт дома"
             "master"->"Знающий мастер";"masterMode"->"Кабинет мастера"
             "smart"->"Поиск по фото";"account"->"Моя информация"
@@ -365,6 +368,10 @@ class UnifiedActivity : Activity() {
             masterHub.render(screen,body)
             return
         }
+        if(screen.startsWith("resale:")){
+            resaleHub.render(screen,body)
+            return
+        }
         when(screen) {
             "auth"->auth()
             "digital"->digital()
@@ -391,6 +398,7 @@ class UnifiedActivity : Activity() {
         row("История уведомлений","bell",{go("info")})
         row("Настройки уведомлений","bell-settings",{go("info")})
         row("Купленные товары","bag",{go("orders")})
+        row("Секонд-хэнд: продать свои вещи","store",{go("resale:hub")})
         row("История заказов","receipt",{go("orders")})
         row("История просмотров","history",{go("info")})
         row("Моя информация","contact",{go("account")})
@@ -572,6 +580,7 @@ class UnifiedActivity : Activity() {
         row("3D-модель дома","box",{go("3d")},true)
         row("Поиск по фото","camera",{go("smart")},true)
         row("Знающий мастер","hammer",{go("master:hub")},true)
+        row("Секонд-хэнд","store",{go("resale:hub")},true)
     }
     private fun property(mode:String) {
         title(if(mode=="3d") "3D-модель" else "Паспорт жилья")
