@@ -587,6 +587,22 @@ class Storefront(
         body.addView(promos)
         space(body, 14)
 
+        // Digital-home promo cards right under the stories; each opens its feature.
+        val cardWidth = activity.resources.displayMetrics.widthPixels - dp(48)
+        val featureCards = HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false }
+        val featureRow = horizontal().apply { setPadding(dp(16), 0, dp(10), dp(6)) }
+        listOf(R.drawable.oma_promo_photo to "photo", R.drawable.oma_promo_3d to "home:3d",
+            R.drawable.oma_promo_passport to "home:passport", R.drawable.oma_promo_master to "master:hub")
+            .forEach { (res, route) ->
+                featureRow.addView(roundedImage(res, 12).apply {
+                    elevation = dp(2).toFloat()
+                    setOnClickListener { openStoryFeature(route) }
+                }, LinearLayout.LayoutParams(cardWidth, cardWidth * 45 / 100).apply { rightMargin = dp(10) })
+            }
+        featureCards.addView(featureRow)
+        body.addView(featureCards)
+        space(body, 8)
+
         banners.forEach { res ->
             body.addView(roundedImage(res, 12).apply {
                 scaleType = ImageView.ScaleType.FIT_XY

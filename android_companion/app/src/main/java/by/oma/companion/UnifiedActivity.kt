@@ -119,17 +119,6 @@ class UnifiedActivity : Activity() {
             chooseFeature(route)
         }
     }
-    private fun openFeaturePromo() {
-        featureOriginScreen = screen
-        if (!signedIn()) {
-            pendingFeatureLogin = true
-            authMode = if (prefs.contains("demo_auth_hash")) "login" else "register"
-            go("auth")
-        } else {
-            featurePopupOpen = true
-            render()
-        }
-    }
     private fun chooseFeature(route:String) {
         if (!signedIn()) {
             featurePopupOpen = false
@@ -363,25 +352,6 @@ class UnifiedActivity : Activity() {
         body.alpha=0f
         body.translationY=dp(6).toFloat()
         body.animate().alpha(1f).translationY(0f).setDuration(170L).start()
-
-        // The small in-app promotional chip floats above ALL five store tabs
-        // and their catalog/product pages, but stays out of sign-in and service screens.
-        if (screen == "" || screen.startsWith("shop:")) {
-            if (featurePopupOpen && signedIn()) {
-                FloatingFeatures.attachMenu(
-                    this, canvas,
-                    onDismiss = { featurePopupOpen = false; render() },
-                    onSelect = { route -> chooseFeature(route) }
-                )
-            } else {
-                FloatingFeatures.attachChip(
-                    this, canvas,
-                    clearanceFromBottomDp = if (screen == "" &&
-                        tab == "Корзина" && shop.cartCount() > 0) 196 else 87,
-                    open = { openFeaturePromo() }
-                )
-            }
-        }
 
         if (screen.startsWith("shop:")) {
             shop.render(screen, body)
