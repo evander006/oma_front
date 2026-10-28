@@ -360,7 +360,7 @@ class HomeHub(
             button(body, "Добавить объект") { navigate("home:add") }
             return
         }
-        note(body, "Объект «${home.name}». Выберите комнату слева. Модель строится из площади помещения, а покупки появляются только там, куда они назначены в паспорте.")
+        note(body, "Объект «${home.name}». Выберите комнату слева. Вращение и наклон — одним пальцем, масштаб — двумя пальцами.")
         val shell=LinearLayout(activity).apply {orientation=LinearLayout.HORIZONTAL;setBackgroundColor(Color.WHITE)}
         val menu=LinearLayout(activity).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(231,241,248))}
         val viewer=Room3DView(activity)
@@ -397,7 +397,7 @@ class HomeHub(
         body.addView(shell,LinearLayout.LayoutParams(-1,dp(590)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
         home.rooms.firstOrNull()?.let{select(it)}
         if(home.rooms.isEmpty()) note(body,"В паспорте нет помещений. Создайте объект заново с перечнем комнат.")
-        note(body,"Для демонстрации приложение само строит более подробные модели аэрогриля, табурета/стула и светильника. Остальные покупки отображаются как типизированные объёмные объекты. Точная форма квартиры, двери и окна пока ориентировочные: для цифрового двойника нужен обмерный план.")
+        note(body,"Это настоящее OpenGL 3D с перспективой и глубиной. Аэрогриль, табурет/стул и светильник собираются из отдельных геометрических деталей. Остальные покупки пока показаны как объёмные заготовки. Для точной геометрии квартиры нужен обмерный план.")
     }
 
     private fun locations(): JSONObject = runCatching {
