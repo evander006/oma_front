@@ -342,7 +342,8 @@ class Storefront(
         background = rounded(Color.WHITE, radius, Color.TRANSPARENT)
         clipToOutline = true
     }
-    private val stories = listOf(R.drawable.oma_story_bonus, R.drawable.oma_story_sale60,
+    private val stories = listOf(R.drawable.oma_story_passport, R.drawable.oma_story_interior,
+        R.drawable.oma_story_visual, R.drawable.oma_story_service, R.drawable.oma_story_bonus, R.drawable.oma_story_sale60,
         R.drawable.oma_story_credit, R.drawable.oma_story_delivery, R.drawable.oma_story_assortment)
     private val banners = listOf(R.drawable.oma_banner_halva, R.drawable.oma_banner_lamps,
         R.drawable.oma_banner_makita, R.drawable.oma_banner_appliances, R.drawable.oma_banner_bedding,
@@ -475,6 +476,9 @@ class Storefront(
             leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(24)
         })
     }
+    private val categoryArt = mapOf("Акции" to R.drawable.cat_sale, "Интерьер и отделка" to R.drawable.cat_interior,
+        "Благоустройство" to R.drawable.cat_garden, "Стройматериалы" to R.drawable.cat_building,
+        "Инструмент" to R.drawable.cat_tools, "Мебель" to R.drawable.cat_furniture)
     private fun tileGrid(body: LinearLayout, list: List<String>, click: (String) -> Unit) {
         list.chunked(2).forEach { pair ->
             val row = horizontal()
@@ -485,14 +489,22 @@ class Storefront(
                     setPadding(dp(18), dp(18), dp(8), dp(8))
                     setOnClickListener { click(name) }
                 }
-                val label = text(name, 20f, true, Color.BLACK).apply {maxLines = 2;gravity = Gravity.TOP}
-                item.addView(label, LinearLayout.LayoutParams(-1, dp(62)))
-                val cover = products.firstOrNull {
-                    it.category == name || it.subcategory == name ||
-                    (name == "Стройматериалы" && it.category == "Интерьер и отделка")
+                val label = text(name, 18f, true, Color.BLACK).apply {
+                    maxLines = 2;gravity = Gravity.TOP
+                    breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+                    hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+                    // Shrink until the longest word fits on one line, so words never split.
+                    val room = activity.resources.displayMetrics.widthPixels / 2f - dp(52)
+                    val longest = name.split(" ").maxByOrNull { it.length } ?: name
+                    while (textSize > dp(13) && paint.measureText(longest) > room) setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textSize - 1f)
                 }
-                val preview = photo(cover, 110).apply { scaleType = ImageView.ScaleType.FIT_END;setBackgroundColor(Color.TRANSPARENT) }
-                item.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f).apply { leftMargin = dp(40) })
+                item.addView(label, LinearLayout.LayoutParams(-1, dp(52)))
+                val preview = (categoryArt[name]?.let { res ->
+                    ImageView(activity).apply { setImageResource(res);scaleType = ImageView.ScaleType.FIT_CENTER }
+                } ?: photo(products.firstOrNull { it.category == name || it.subcategory == name }, 110).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER;setBackgroundColor(Color.TRANSPARENT)
+                })
+                item.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f).apply { rightMargin = dp(10);bottomMargin = dp(6) })
                 row.addView(item, LinearLayout.LayoutParams(0, dp(212), 1f).apply {
                     leftMargin = dp(13);rightMargin = dp(13);bottomMargin = dp(26)
                 })
