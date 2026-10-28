@@ -18,6 +18,10 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.*
 import android.database.sqlite.SQLiteDatabase
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import java.io.ByteArrayOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -78,6 +82,8 @@ class Storefront(
     private var photoMatches: List<Pair<Item, Int>> = emptyList()
     private var photoAnalysisNote = ""
     private var photoDetected = ""
+    private var photoSearchToken = 0
+    private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
         "Инструмент", "Мебель", "Бытовая техника", "Товары для дома",
@@ -810,80 +816,227 @@ class Storefront(
         }
     }
 
-    fun analyzePhoto(uri:Uri){
-        photoUri=uri;photoBusy=true;photoError="";photoMatches=emptyList()
-        photoAnalysisNote="";photoDetected=""
+    /** Search against the imported OMA catalog, never just the backend demo catalog. */
+    fun analyzePhoto(uri: Uri) {
+        val requestId = ++photoSearchToken
+        photoUri = uri; photoBusy = true; photoError = ""; photoMatches = emptyList()
+        photoAnalysisNote = ""; photoDetected = ""
+        photoMatchLabel = "Релевантность"
         navigate("shop:photo")
-        pool.execute{
-            val upload=runCatching{
-                activity.contentResolver.openInputStream(uri)?.use{it.readBytes()}
-                    ?: error("Не удалось открыть фотографию")
+
+        // The bundled on-device labeler responds quickly, even without a server.
+        analyzePhotoOnDevice(uri, requestId)
+
+        // A configured remote vision provider can improve the object terms later.
+        pool.execute {
+            val photoBytes = runCatching { preparePhotoUpload(uri) }
+            photoBytes.onSuccess { bytes ->
+                api.visualSearch(bytes, "image/jpeg") { remote ->
+                    remote.onSuccess { raw ->
+                        pool.execute {
+                            val result = runCatching { parseRemoteMatches(raw) }.getOrNull()
+                            ui.post {
+                                if (requestId != photoSearchToken || result == null) return@post
+                                val (found, terms, note) = result
+                                if (terms.isNotEmpty() && found.isNotEmpty()) {
+                                    photoMatches = found
+                                    photoDetected = terms.joinToString(", ")
+                                    photoAnalysisNote = note +
+                                        " Результаты сопоставлены со всем импортированным каталогом ОМА."
+                                    photoMatchLabel = "Релевантность"
+                                    photoBusy = false; photoError = ""
+                                    navigate("shop:photo")
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            upload.fold({bytes->
-                val mime=activity.contentResolver.getType(uri)?:"image/jpeg"
-                api.visualSearch(bytes,mime){remote->
-                    remote.fold({raw->
-                        val parsed=runCatching{parseRemoteMatches(raw)}.getOrDefault(emptyList())
-                        if(parsed.isNotEmpty()){
-                            photoMatches=parsed;photoBusy=false;photoError=""
-                            navigate("shop:photo")
-                        }else analyzePhotoLocally(uri,"ИИ-сервис не сопоставил товары из локального каталога")
-                    },{
-                        analyzePhotoLocally(uri,"ИИ-сервис временно недоступен")
-                    })
-                }
-            },{
-                ui.post{
-                    photoBusy=false;photoError=it.message?:"Ошибка анализа";navigate("shop:photo")
-                }
-            })
         }
     }
 
-    private fun parseRemoteMatches(raw:String):List<Pair<Item,Int>>{
-        val response=JSONObject(raw)
-        val detected=response.optJSONArray("detected_objects")?:JSONArray()
-        photoDetected=(0 until detected.length()).map{detected.optString(it)}
-            .filter{it.isNotBlank()}.joinToString(", ")
-        photoAnalysisNote=response.optString("note","Поиск выполнен нейросетью и визуальным ранжированием")
-        val matches=response.optJSONArray("matches")?:JSONArray()
-        return (0 until matches.length()).mapNotNull{index->
-            val match=matches.optJSONObject(index)?:return@mapNotNull null
-            val sku=match.optString("sku")
-            val name=match.optString("name")
-            val item=products.firstOrNull{it.id.equals(sku,true)}
-                ?:products.firstOrNull{it.title.equals(name,true)}
-                ?:return@mapNotNull null
-            val confidence=match.optDouble("match_score",
-                match.optDouble("visual_color_similarity",0.0))
-            item to (confidence*100.0).roundToInt().coerceIn(1,99)
-        }.distinctBy{it.first.id}.take(20)
+    /** Reduce camera files before upload; preserve correct image orientation. */
+    private fun preparePhotoUpload(uri: Uri): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        activity.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        } ?: error("Не удалось открыть фотографию")
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Неверный формат изображения" }
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1280) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val source = activity.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        } ?: error("Не удалось прочитать фотографию")
+        try {
+            val orientation = runCatching {
+                activity.contentResolver.openInputStream(uri)?.use {
+                    android.media.ExifInterface(it).getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL
+                    )
+                }
+            }.getOrNull()
+            val degrees = when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            val rotated = if (degrees == 0f) source else {
+                val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
+                Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+            }
+            try {
+                val output = ByteArrayOutputStream()
+                check(rotated.compress(Bitmap.CompressFormat.JPEG, 82, output)) {
+                    "Не удалось подготовить фотографию"
+                }
+                return output.toByteArray()
+            } finally {
+                if (rotated !== source) rotated.recycle()
+            }
+        } finally {
+            source.recycle()
+        }
     }
 
-    private fun analyzePhotoLocally(uri:Uri,reason:String){
-        pool.execute{
-            val result=runCatching{
-                val source=activity.contentResolver.openInputStream(uri)?.use{BitmapFactory.decodeStream(it)}
-                    ?:error("Не удалось открыть фотографию")
-                val target=descriptor(source)
-                val candidates=products.asSequence().filter{it.image.isNotBlank()}.take(320).toList()
-                val scored=candidates.mapNotNull{item->runCatching{
-                    val bitmap=loadProductBitmap(item)?:return@runCatching null
-                    val candidate=descriptor(bitmap)
-                    val distance=candidate.indices.sumOf{i->
-                        val d=(candidate[i]-target[i]).toDouble();d*d
-                    }.let{sqrt(it)}
-                    item to (100.0/(1.0+distance*2.8)).toInt().coerceIn(1,99)
-                }.getOrNull()}.filterNotNull().sortedByDescending{it.second}.take(20)
-                if(scored.isEmpty())error("Не удалось загрузить изображения товаров")
-                scored
+    private fun normalizedObjectTerms(label: String): List<String> {
+        val labelText = label.lowercase(Locale.ROOT).trim()
+        if (labelText.isBlank()) return emptyList()
+        // ML Kit uses English labels; map common DIY subjects to Russian catalog names.
+        val dictionary = listOf(
+            "drill" to listOf("дрель", "шуруповерт"), "power tool" to listOf("электроинструмент"),
+            "hammer" to listOf("молоток"), "screw" to listOf("шуруп", "саморез"),
+            "tool" to listOf("инструмент"), "faucet" to listOf("смеситель"),
+            "tap" to listOf("смеситель"), "sink" to listOf("раковина", "мойка"),
+            "bathtub" to listOf("ванна"), "toilet" to listOf("унитаз"),
+            "lamp" to listOf("светильник", "лампа"), "light fixture" to listOf("светильник"),
+            "bulb" to listOf("лампа", "лампочка"), "paint brush" to listOf("кисть"),
+            "paint" to listOf("краска"), "bucket" to listOf("ведро"),
+            "roller" to listOf("валик"), "tile" to listOf("плитка"),
+            "wallpaper" to listOf("обои"), "floor" to listOf("ламинат", "покрытие"),
+            "chair" to listOf("стул", "кресло"), "table" to listOf("стол"),
+            "cabinet" to listOf("шкаф", "тумба"), "shelf" to listOf("полка"),
+            "door" to listOf("дверь"), "window" to listOf("окно"),
+            "plant" to listOf("растение"), "flower pot" to listOf("горшок"),
+            "pipe" to listOf("труба"), "cable" to listOf("кабель"),
+            "lawn" to listOf("газон"), "garden" to listOf("сад"),
+            "ladder" to listOf("лестница"), "saw" to listOf("пила"),
+            "glove" to listOf("перчатки"), "broom" to listOf("веник", "щетка")
+        )
+        val translated = dictionary.filter { labelText.contains(it.first) }.flatMap { it.second }
+        return if (translated.isNotEmpty()) translated.distinct()
+            else if (labelText.any { it in 'а'..'я' || it == 'ё' }) listOf(labelText)
+            else emptyList()
+    }
+
+    /** Matching is done on a worker to keep scrolling responsive with 134k rows. */
+    private fun searchLocalTerms(terms: List<String>): List<Pair<Item, Int>> {
+        val phrases = terms.map { it.trim().lowercase(Locale.ROOT) }
+            .filter { it.length >= 3 }.distinct().take(12)
+        if (phrases.isEmpty()) return emptyList()
+        val scored = products.asSequence().mapNotNull { item ->
+            val title = item.title.lowercase(Locale.ROOT)
+            val subcategory = item.subcategory.lowercase(Locale.ROOT)
+            val category = item.category.lowercase(Locale.ROOT)
+            val brand = item.brand.lowercase(Locale.ROOT)
+            var score = 0
+            for (phrase in phrases) {
+                val tokens = phrase.split(Regex("[^а-яёa-z0-9]+")).filter { it.length >= 3 }
+                for (token in tokens) {
+                    val stem = if (token.length >= 7) token.dropLast(2) else token
+                    score += when {
+                        title.contains(stem) -> 12
+                        subcategory.contains(stem) -> 7
+                        category.contains(stem) -> 4
+                        brand.contains(stem) -> 2
+                        else -> 0
+                    }
+                }
             }
-            ui.post{
-                photoBusy=false
-                result.fold({
-                    photoMatches=it
-                    photoAnalysisNote="$reason. Показано локальное визуальное сходство."
-                },{photoError=it.message?:"Ошибка анализа"})
+            if (score == 0) null else item to score
+        }.sortedByDescending { it.second }.take(20).toList()
+        return scored.map { it.first to it.second.coerceAtMost(100) }
+    }
+
+    private data class RemotePhotoResult(
+        val items: List<Pair<Item, Int>>, val terms: List<String>, val note: String
+    )
+
+    private fun parseRemoteMatches(raw: String): RemotePhotoResult {
+        val response = JSONObject(raw)
+        val detected = response.optJSONArray("detected_objects") ?: JSONArray()
+        val terms = (0 until detected.length()).map { detected.optString(it) }
+            .filter { it.isNotBlank() }.take(5)
+        // Server may host a small demo catalog. Its SKUs are not a full OMA index.
+        return RemotePhotoResult(
+            if (terms.isNotEmpty()) searchLocalTerms(terms) else emptyList(),
+            terms,
+            response.optString("note", "Сервер распознал предметы на фотографии.")
+        )
+    }
+
+    private fun analyzePhotoOnDevice(uri: Uri, requestId: Int) {
+        val input = runCatching { InputImage.fromFilePath(activity, uri) }
+            .getOrElse {
+                showPhotoFallback(requestId, "Не удалось открыть фото для распознавания")
+                return
+            }
+        val labeler = ImageLabeling.getClient(
+            ImageLabelerOptions.Builder().setConfidenceThreshold(0.35f).build()
+        )
+        labeler.process(input).addOnSuccessListener { labels ->
+            val recognized = labels.sortedByDescending { it.confidence }.take(5)
+            val terms = recognized.flatMap { normalizedObjectTerms(it.text) }.distinct()
+            pool.execute {
+                val results = searchLocalTerms(terms)
+                ui.post {
+                    if (requestId != photoSearchToken) return@post
+                    photoMatches = results
+                    photoDetected = recognized.joinToString(", ") { it.text }
+                    photoBusy = false
+                    photoError = ""
+                    photoMatchLabel = "Релевантность"
+                    photoAnalysisNote = if (results.isNotEmpty())
+                        "Предметы распознаны на телефоне. Поиск выполнен по всему каталогу ОМА. Это возможные совпадения, не подтверждение артикула."
+                    else "Не удалось уверенно подобрать товар автоматически. Укажите название предмета ниже."
+                    navigate("shop:photo")
+                }
+            }
+        }.addOnFailureListener {
+            showPhotoFallback(requestId, "Распознавание на телефоне недоступно")
+        }.addOnCompleteListener {
+            labeler.close()
+        }
+    }
+
+    private fun showPhotoFallback(requestId: Int, message: String) {
+        ui.post {
+            if (requestId != photoSearchToken) return@post
+            photoBusy = false
+            photoError = ""
+            photoMatches = emptyList()
+            photoAnalysisNote = "$message. Можно найти товар по названию в полном каталоге."
+            navigate("shop:photo")
+        }
+    }
+
+    private fun searchPhotoByText(query: String) {
+        val terms = listOf(query.trim()).filter { it.isNotBlank() }
+        if (terms.isEmpty()) return
+        val requestId = ++photoSearchToken
+        photoBusy = true
+        navigate("shop:photo")
+        pool.execute {
+            val found = searchLocalTerms(terms)
+            ui.post {
+                if (requestId != photoSearchToken) return@post
+                photoMatches = found
+                photoDetected = query
+                photoBusy = false; photoError = ""
+                photoAnalysisNote = "Поиск по уточнённому названию среди всех товаров импортированного каталога."
+                photoMatchLabel = "Релевантность"
                 navigate("shop:photo")
             }
         }
@@ -892,9 +1045,40 @@ class Storefront(
     private fun photoSearchScreen(body:LinearLayout){
         val preview=ImageView(activity).apply{
             scaleType=ImageView.ScaleType.CENTER_CROP;setBackgroundColor(Color.WHITE)
-            photoUri?.let{setImageURI(it)}
+            photoUri?.let { uri ->
+                // Decode a thumbnail in the background instead of a full camera image on UI.
+                tag = uri.toString()
+                pool.execute {
+                    val bitmap = runCatching {
+                        val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                        activity.contentResolver.openInputStream(uri)?.use {
+                            BitmapFactory.decodeStream(it, null, options)
+                        }
+                    }.getOrNull()
+                    if (bitmap != null) ui.post {
+                        if (tag == uri.toString() && !activity.isFinishing) setImageBitmap(bitmap)
+                        else bitmap.recycle()
+                    }
+                }
+            }
         }
         body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
+        val hint = EditText(activity).apply {
+            setSingleLine(true)
+            setTextColor(ink);textSize = 15f
+            this.hint = "Что изображено на фото? Например, дрель"
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(Color.WHITE, 8)
+        }
+        body.addView(hint, LinearLayout.LayoutParams(-1,dp(50)).apply {
+            leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(12)
+        })
+        body.addView(outlineButton("Уточнить и найти во всём каталоге", {
+            val entered = hint.text.toString().trim()
+            if (entered.isNotBlank()) searchPhotoByText(entered)
+        }),LinearLayout.LayoutParams(-1,dp(46)).apply {
+            leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(6);bottomMargin=dp(10)
+        })
         when{
             photoBusy->{sectionTitle(body,"Анализируем изображение…");body.addView(ProgressBar(activity).apply{isIndeterminate=true})}
             photoError.isNotBlank()->{
