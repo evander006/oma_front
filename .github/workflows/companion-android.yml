@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - fix/android-catalog-paged-sqlite-20261028
     paths:
       - 'android_companion/**'
       - '.github/workflows/companion-android.yml'
