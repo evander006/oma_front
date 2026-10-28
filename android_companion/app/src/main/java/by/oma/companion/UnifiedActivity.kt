@@ -246,8 +246,29 @@ class UnifiedActivity : Activity() {
                             .put("address","Демонстрационный адрес")
                             .put("property_type","apartment")
                         api.request("POST","/properties",data) {r->
-                            r.fold({notice("Квартира создана");go(mode)},
-                                {notice("Ошибка: "+it.message)})
+                            r.fold({raw->
+                                val newId=JSONObject(raw).optInt("id")
+                                if(newId<=0) {notice("Квартира создана");go(mode)}
+                                else {
+                                    val rooms=listOf(
+                                        arrayOf("Гостиная","living_room","4.8","4.0"),
+                                        arrayOf("Кухня","kitchen","3.3","3.0"),
+                                        arrayOf("Спальня","bedroom","4.1","3.5"))
+                                    fun addRoom(index:Int) {
+                                        if(index>=rooms.size) {notice("Демо-квартира и комнаты созданы");go(mode);return}
+                                        val room=rooms[index]
+                                        val data=JSONObject().put("property_id",newId)
+                                            .put("name",room[0]).put("room_type",room[1])
+                                            .put("width_m",room[2].toDouble())
+                                            .put("length_m",room[3].toDouble()).put("height_m",2.7)
+                                        api.request("POST","/rooms",data) {answer->
+                                            if(answer.isFailure) notice("Не удалось добавить "+room[0])
+                                            addRoom(index+1)
+                                        }
+                                    }
+                                    addRoom(0)
+                                }
+                            }, {notice("Ошибка: "+it.message)})
                         }
                     }
                 } else items.forEach {item->
