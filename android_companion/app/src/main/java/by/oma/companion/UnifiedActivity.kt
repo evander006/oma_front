@@ -30,6 +30,7 @@ class UnifiedActivity : Activity() {
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
     private var tab = "Профиль"
     private var screen = ""
+    private var authMode = "register"
     private var generation = 0
     private var contractorId = 0
     private var masterId = 0
@@ -48,10 +49,14 @@ class UnifiedActivity : Activity() {
         masterId = contractorId
         tab = savedInstanceState?.getString("tab") ?: "Профиль"
         screen = savedInstanceState?.getString("screen") ?: ""
+        authMode = savedInstanceState?.getString("authMode")
+            ?: if (prefs.contains("demo_auth_hash")) "login" else "register"
         render()
     }
     override fun onSaveInstanceState(out: Bundle) {
-        out.putString("tab",tab); out.putString("screen",screen); super.onSaveInstanceState(out)
+        out.putString("tab",tab); out.putString("screen",screen)
+        out.putString("authMode", authMode)
+        super.onSaveInstanceState(out)
     }
     override fun onDestroy() { web?.destroy(); api.close(); super.onDestroy() }
     private fun dp(n:Int):Int = Style.dp(this,n)
@@ -142,7 +147,7 @@ class UnifiedActivity : Activity() {
             setOnClickListener {onBackPressed()}
         },LinearLayout.LayoutParams(dp(30),dp(32)).apply {rightMargin=dp(10)})
         val heading=when(screen) {
-            "auth"->"Регистрация";"digital"->"Цифровой дом"
+            "auth"->"Вход и регистрация";"digital"->"Цифровой дом"
             "3d"->"3D-модель";"passport"->"Паспорт жилья"
             "master"->"Мой мастер";"masterMode"->"Кабинет мастера"
             "smart"->"Умный поиск";"account"->"Моя информация"
@@ -206,21 +211,164 @@ class UnifiedActivity : Activity() {
         row("Адреса магазинов","store",{go("info")})
         row("Список сравнения","compare",{go("info")})
     }
+    /**
+     * Independent local demo sign-in. No OMA credentials, SMS, or external identity service.
+     * Native widgets intentionally copy the existing OMA visual language: white inputs,
+     * fine grey borders, blue primary CTA, restrained copy, no extra feature cards.
+     */
     private fun auth() {
-        title("Вход в демо-профиль")
-        note("Регистрация локальная. Это не вход в настоящий аккаунт ОМА; не вводите свой реальный пароль.")
-        val name=input("Имя","Анна")
-        val email=input("Демо-email","demo@example.com",InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
-        button("Продолжить") {
-            if(name.text.toString().trim().length<2 || !email.text.toString().contains("@")) {
-                notice("Укажите имя и демо-email")
+        title("Личный кабинет")
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(18), dp(17), dp(18), dp(15))
+            setBackgroundColor(Color.WHITE)
+        }
+        listOf("login" to "Вход", "register" to "Регистрация").forEach { (key, text) ->
+            val selectedTab = authMode == key
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setOnClickListener {
+                    if (authMode != key) {
+                        authMode = key
+                        render()
+                    }
+                }
+            }
+            val label = label(text, 16f, selectedTab,
+                if (selectedTab) ink else Color.rgb(137, 145, 151)).apply {
+                gravity = Gravity.CENTER
+            }
+            item.addView(label, LinearLayout.LayoutParams(-1, dp(44)))
+            item.addView(View(this).apply {
+                setBackgroundColor(if (selectedTab) Style.ORANGE else faint)
+            }, LinearLayout.LayoutParams(-1, dp(if (selectedTab) 3 else 1)))
+            controls.addView(item, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        body.addView(controls)
+        body.addView(label(
+            if (authMode == "register") "Создайте профиль для доступа к цифровому дому"
+            else "Войдите в свой демонстрационный профиль",
+            15f, false, ink
+        ).apply { setPadding(dp(18), dp(23), dp(18), dp(12)) })
+
+        val name = if (authMode == "register") authField(
+            "Ваше имя", "Например, Анна",
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        ) else null
+        val email = authField(
+            "Электронная почта", "demo@example.com",
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        )
+        if (authMode == "login") {
+            email.setText(prefs.getString("demo_auth_email", ""))
+        }
+        val pin = authField(
+            if (authMode == "register") "Придумайте код входа" else "Код входа",
+            "4 цифры",
+            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        )
+        pin.filters = arrayOf(android.text.InputFilter.LengthFilter(4))
+
+        authPrimaryButton(if (authMode == "register") "Зарегистрироваться" else "Войти") {
+            val address = email.text.toString().trim().lowercase(java.util.Locale.ROOT)
+            val code = pin.text.toString()
+            if (!android.util.Patterns.EMAIL_ADDRESS.matcher(address).matches()) {
+                email.error = "Укажите корректный email";return@authPrimaryButton
+            }
+            if (code.length != 4 || !code.all { it.isDigit() }) {
+                pin.error = "Введите 4 цифры";return@authPrimaryButton
+            }
+            if (authMode == "register") {
+                val displayName = name?.text?.toString()?.trim().orEmpty()
+                if (displayName.length < 2) {
+                    name?.error = "Укажите имя";return@authPrimaryButton
+                }
+                val salt = java.util.UUID.randomUUID().toString()
+                prefs.edit()
+                    .putString("demo_auth_email", address)
+                    .putString("demo_auth_salt", salt)
+                    .putString("demo_auth_hash", authDigest(address, code, salt))
+                    .putString("name", displayName)
+                    .putBoolean("registered", true)
+                    .apply()
             } else {
-                prefs.edit().putBoolean("registered",true)
-                    .putString("name",name.text.toString()).apply()
-                tab="Профиль";go("")
+                val salt = prefs.getString("demo_auth_salt", "").orEmpty()
+                val expected = prefs.getString("demo_auth_hash", "").orEmpty()
+                if (salt.isBlank() || expected.isBlank()
+                    || address != prefs.getString("demo_auth_email", "")
+                    || authDigest(address, code, salt) != expected) {
+                    notice("Неверный демо-email или код входа")
+                    return@authPrimaryButton
+                }
+                prefs.edit().putBoolean("registered", true).apply()
+            }
+            tab = "Профиль"
+            go("")
+            notice("Цифровой дом теперь доступен в профиле")
+        }
+
+        val help = if (authMode == "register")
+            "Уже есть демо-профиль?  Войти"
+        else "Нет демо-профиля?  Зарегистрироваться"
+        val switch = label(help, 14f, false, omaBlue).apply {
+            gravity = Gravity.CENTER
+            setOnClickListener {
+                authMode = if (authMode == "register") "login" else "register"
+                render()
             }
         }
+        body.addView(switch, LinearLayout.LayoutParams(-1, dp(50)))
+        note("Демо-режим: используйте только тестовые данные. " +
+            "Регистрация работает на этом устройстве и не связана с аккаунтом ОМА.")
     }
+
+    private fun authField(caption:String, hint:String, type:Int):EditText {
+        body.addView(label(caption, 14f, true).apply {
+            setPadding(dp(19), dp(12), dp(19), dp(7))
+        })
+        val border = android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.WHITE)
+            cornerRadius = dp(7).toFloat()
+            setStroke(dp(1), Color.rgb(215, 220, 224))
+        }
+        val edit = EditText(this).apply {
+            this.hint = hint
+            inputType = type
+            textSize = 16f
+            setTextColor(ink)
+            setHintTextColor(Color.rgb(165, 171, 176))
+            isSingleLine = true
+            background = border
+            setPadding(dp(15), 0, dp(15), 0)
+        }
+        body.addView(edit, LinearLayout.LayoutParams(-1, dp(54)).apply {
+            leftMargin = dp(18);rightMargin = dp(18);bottomMargin = dp(8)
+        })
+        return edit
+    }
+
+    private fun authPrimaryButton(text:String, click:()->Unit) {
+        val background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(omaBlue)
+            cornerRadius = dp(6).toFloat()
+        }
+        val button = label(text, 16f, true, Color.WHITE).apply {
+            gravity = Gravity.CENTER
+            this.background = background
+            isClickable = true
+            setOnClickListener { click() }
+        }
+        body.addView(button, LinearLayout.LayoutParams(-1, dp(54)).apply {
+            leftMargin = dp(18);rightMargin = dp(18)
+            topMargin = dp(22);bottomMargin = dp(8)
+        })
+    }
+
+    private fun authDigest(email:String, code:String, salt:String):String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$salt:$email:$code".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
     private fun digital() {
         title("Цифровой дом")
         row("3D-модель","box",{go("3d")},true)
