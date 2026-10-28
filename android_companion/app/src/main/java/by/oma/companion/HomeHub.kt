@@ -42,7 +42,11 @@ class HomeHub(
     private var pageIndex = 0
     private var zoom = 1f
 
-    private data class Room(val name: String, val area: Double)
+    private data class Room(
+        val name: String, val area: Double, val width: Double = 0.0,
+        val length: Double = 0.0, val height: Double = 2.7,
+        val doorWall: String = "Левая", val windowWall: String = "Задняя"
+    )
     private data class Home(
         val id: String,
         val type: String,
@@ -112,7 +116,10 @@ class HomeHub(
             val array = o.optJSONArray("rooms") ?: JSONArray()
             for (r in 0 until array.length()) {
                 val room = array.optJSONObject(r) ?: continue
-                rooms += Room(room.optString("name"), room.optDouble("area"))
+                rooms += Room(room.optString("name"), room.optDouble("area"),
+                    room.optDouble("width"), room.optDouble("length"),
+                    room.optDouble("height", 2.7), room.optString("doorWall", "Левая"),
+                    room.optString("windowWall", "Задняя"))
             }
             result += Home(
                 o.optString("id"), o.optString("type"), o.optString("name"),
@@ -128,7 +135,9 @@ class HomeHub(
         val array = JSONArray()
         items.forEach { h ->
             val rooms = JSONArray()
-            h.rooms.forEach { rooms.put(JSONObject().put("name", it.name).put("area", it.area)) }
+            h.rooms.forEach { rooms.put(JSONObject().put("name", it.name).put("area", it.area)
+                .put("width", it.width).put("length", it.length).put("height", it.height)
+                .put("doorWall", it.doorWall).put("windowWall", it.windowWall)) }
             array.put(JSONObject().put("id", h.id).put("type", h.type).put("name", h.name)
                 .put("address", h.address).put("area", h.area).put("floor", h.floor)
                 .put("floors", h.floors).put("year", h.year).put("bathroom", h.bathroom)
@@ -232,29 +241,50 @@ class HomeHub(
 
         heading(body, "Помещения и площади")
         note(body, "Отметьте помещения, которые есть в объекте, и при необходимости укажите их площадь.")
-        val roomInputs = mutableListOf<Triple<String, CheckBox, EditText>>()
+        data class RoomInput(val name:String,val check:CheckBox,val area:EditText,val width:EditText,
+            val length:EditText,val height:EditText,val door:Spinner,val window:Spinner)
+        val roomInputs = mutableListOf<RoomInput>()
         listOf("Кухня", "Коридор", "Ванная", "Туалет", "Гостиная", "Спальня 1",
             "Спальня 2", "Детская", "Кабинет", "Кладовая", "Балкон").forEach { roomName ->
-            val row = LinearLayout(activity).apply {
-                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), 0, dp(14), 0)
+            val card = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(5), dp(14), dp(8))
+                background=Style.bg(Color.WHITE,7f,line)
             }
             val check = CheckBox(activity).apply { text = roomName; textSize = 14.5f }
             val roomArea = EditText(activity).apply {
-                hint = "м²"; textSize = 14f; setSingleLine(true)
+                hint = "Площадь, м²"; textSize = 13f; setSingleLine(true)
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             }
-            row.addView(check, LinearLayout.LayoutParams(0, dp(52), 1f))
-            row.addView(roomArea, LinearLayout.LayoutParams(dp(82), dp(48)))
-            body.addView(row)
-            roomInputs += Triple(roomName, check, roomArea)
+            card.addView(check,LinearLayout.LayoutParams(-1,dp(43)))
+            val dimensions=LinearLayout(activity).apply{orientation=LinearLayout.HORIZONTAL}
+            fun number(hint:String,default:String="")=EditText(activity).apply{
+                this.hint=hint;setText(default);textSize=12.5f;setSingleLine(true)
+                inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            }
+            val width=number("Ширина, м");val length=number("Длина, м");val height=number("Высота, м","2.7")
+            listOf(roomArea,width,length,height).forEach{dimensions.addView(it,LinearLayout.LayoutParams(0,dp(47),1f).apply{rightMargin=dp(4)})}
+            card.addView(dimensions)
+            val openings=LinearLayout(activity).apply{orientation=LinearLayout.HORIZONTAL}
+            val walls=listOf("Нет","Левая","Задняя","Правая","Передняя")
+            val door=Spinner(activity).apply{adapter=ArrayAdapter(activity,android.R.layout.simple_spinner_dropdown_item,walls);setSelection(1)}
+            val window=Spinner(activity).apply{adapter=ArrayAdapter(activity,android.R.layout.simple_spinner_dropdown_item,walls);setSelection(2)}
+            openings.addView(LinearLayout(activity).apply{orientation=LinearLayout.VERTICAL;addView(text("Дверь",11.5f,true));addView(door)},LinearLayout.LayoutParams(0,dp(68),1f))
+            openings.addView(LinearLayout(activity).apply{orientation=LinearLayout.VERTICAL;addView(text("Окно",11.5f,true));addView(window)},LinearLayout.LayoutParams(0,dp(68),1f))
+            card.addView(openings)
+            body.addView(card,LinearLayout.LayoutParams(-1,-2).apply{leftMargin=dp(14);rightMargin=dp(14);bottomMargin=dp(8)})
+            roomInputs += RoomInput(roomName,check,roomArea,width,length,height,door,window)
         }
         button(body, "Создать объект") {
             val totalArea = area.text.toString().replace(',', '.').toDoubleOrNull()
             if (name.text.toString().trim().length < 2) { name.error = "Укажите название"; return@button }
             if (totalArea == null || totalArea <= 0) { area.error = "Укажите площадь"; return@button }
-            val rooms = roomInputs.filter { it.second.isChecked }.map {
-                Room(it.first, it.third.text.toString().replace(',', '.').toDoubleOrNull() ?: 0.0)
+            val rooms = roomInputs.filter { it.check.isChecked }.map {
+                val w=it.width.text.toString().replace(',','.').toDoubleOrNull()?:0.0
+                val l=it.length.text.toString().replace(',','.').toDoubleOrNull()?:0.0
+                val entered=it.area.text.toString().replace(',', '.').toDoubleOrNull() ?: 0.0
+                Room(it.name, if(entered>0)entered else w*l, w, l,
+                    it.height.text.toString().replace(',','.').toDoubleOrNull()?:2.7,
+                    it.door.selectedItem.toString(),it.window.selectedItem.toString())
             }
             if (rooms.isEmpty()) { Toast.makeText(activity, "Выберите хотя бы одно помещение", Toast.LENGTH_LONG).show(); return@button }
             val home = Home(UUID.randomUUID().toString(), if (type.selectedItemPosition == 0) "apartment" else "house",
@@ -298,7 +328,11 @@ class HomeHub(
         info(body, "Высота потолков", home.ceiling.ifBlank { "Не указана" })
         info(body, "Особенности", home.features.ifBlank { "Нет данных" })
         heading(body, "Помещения")
-        home.rooms.forEach { info(body, it.name, if (it.area > 0) formatArea(it.area) else "Площадь не указана") }
+        home.rooms.forEach { room ->
+            val geometry=if(room.width>0&&room.length>0) " · ${room.width} × ${room.length} × ${room.height} м" else " · размеры не указаны"
+            info(body, room.name, (if (room.area > 0) formatArea(room.area) else "Площадь не указана")+geometry)
+            info(body,"Проёмы", "дверь: ${room.doorWall.lowercase()}, окно: ${room.windowWall.lowercase()}")
+        }
 
         heading(body, "Товары из демопокупок ОМА")
         val bought = purchases()
@@ -379,6 +413,11 @@ class HomeHub(
         fun select(room:Room){
             viewer.roomName=room.name
             viewer.roomArea=room.area
+            viewer.roomWidth=room.width
+            viewer.roomLength=room.length
+            viewer.roomHeight=room.height
+            viewer.doorWall=room.doorWall
+            viewer.windowWall=room.windowWall
             viewer.products=productsIn(room)
             for(i in 0 until menu.childCount){
                 val child=menu.getChildAt(i) as? TextView ?: continue
@@ -397,7 +436,7 @@ class HomeHub(
         body.addView(shell,LinearLayout.LayoutParams(-1,dp(590)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
         home.rooms.firstOrNull()?.let{select(it)}
         if(home.rooms.isEmpty()) note(body,"В паспорте нет помещений. Создайте объект заново с перечнем комнат.")
-        note(body,"Это настоящее OpenGL 3D с перспективой и глубиной. Аэрогриль, табурет/стул и светильник собираются из отдельных геометрических деталей. Остальные покупки пока показаны как объёмные заготовки. Для точной геометрии квартиры нужен обмерный план.")
+        note(body,"OpenGL-сцена использует ширину, длину, высоту и стены проёмов из паспорта. Если размеры не заполнены, пропорции вычисляются приближённо из площади. Точная сложная форма комнаты всё ещё требует обмерного плана.")
     }
 
     private fun locations(): JSONObject = runCatching {

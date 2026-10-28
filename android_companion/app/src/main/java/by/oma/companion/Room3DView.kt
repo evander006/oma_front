@@ -31,6 +31,11 @@ class Room3DView(context: Context) : GLSurfaceView(context) {
     var roomArea:Double
         get()=scene.roomArea
         set(value){scene.roomArea=value;requestRender()}
+    var roomWidth:Double get()=scene.roomWidth set(value){scene.roomWidth=value;requestRender()}
+    var roomLength:Double get()=scene.roomLength set(value){scene.roomLength=value;requestRender()}
+    var roomHeight:Double get()=scene.roomHeight set(value){scene.roomHeight=value;requestRender()}
+    var doorWall:String get()=scene.doorWall set(value){scene.doorWall=value;requestRender()}
+    var windowWall:String get()=scene.windowWall set(value){scene.windowWall=value;requestRender()}
     var products:List<Product>
         get()=scene.products
         set(value){scene.products=value.toList();requestRender()}
@@ -57,6 +62,11 @@ class Room3DView(context: Context) : GLSurfaceView(context) {
     private class SceneRenderer:GLSurfaceView.Renderer{
         @Volatile var roomName="Комната"
         @Volatile var roomArea=0.0
+        @Volatile var roomWidth=0.0
+        @Volatile var roomLength=0.0
+        @Volatile var roomHeight=2.7
+        @Volatile var doorWall="Левая"
+        @Volatile var windowWall="Задняя"
         @Volatile var products:List<Product> = emptyList()
         @Volatile var yaw=42f
         @Volatile var pitch=32f
@@ -85,18 +95,29 @@ class Room3DView(context: Context) : GLSurfaceView(context) {
         }
         private fun drawRoom(){
             val ratio=(roomArea.coerceAtLeast(6.0)/16.0).toFloat().coerceIn(.55f,2.1f)
-            val width=4.2f*ratio.coerceAtMost(1.35f);val depth=4f*(1f/ratio).coerceIn(.72f,1.45f)
+            val width=(if(roomWidth>0)roomWidth.toFloat() else 4.2f*ratio.coerceAtMost(1.35f)).coerceIn(2.2f,7f)
+            val depth=(if(roomLength>0)roomLength.toFloat() else 4f*(1f/ratio).coerceIn(.72f,1.45f)).coerceIn(2.2f,7f)
+            val height=roomHeight.toFloat().coerceIn(2.2f,4.2f)
             drawCube(0f,-.08f,0f,width,.12f,depth,Color.rgb(202,174,132))
-            drawCube(0f,1.45f,-depth/2f,width,3f,.10f,Color.rgb(219,232,240))
-            drawCube(-width/2f,1.45f,0f,.10f,3f,depth,Color.rgb(204,221,232))
-            drawCube(.75f,1.75f,-depth/2f+.065f,1.45f,1.05f,.035f,Color.rgb(85,119,139))
-            drawCube(.75f,1.75f,-depth/2f+.09f,1.25f,.86f,.025f,Color.rgb(115,193,224))
-            drawCube(.75f,1.75f,-depth/2f+.115f,.035f,.86f,.02f,Color.WHITE)
-            drawCube(.75f,1.75f,-depth/2f+.115f,1.25f,.035f,.02f,Color.WHITE)
-            drawCube(-width/2f+.07f,1.05f,.72f,.035f,2.1f,1.05f,Color.rgb(145,92,52))
-            drawCube(-width/2f+.10f,1.05f,.44f,.04f,.035f,.035f,Color.rgb(226,183,54))
+            drawCube(0f,height/2f,-depth/2f,width,height,.10f,Color.rgb(219,232,240))
+            drawCube(-width/2f,height/2f,0f,.10f,height,depth,Color.rgb(204,221,232))
+            drawOpening(windowWall,true,width,depth,height)
+            drawOpening(doorWall,false,width,depth,height)
             drawCube(0f,.08f,-depth/2f+.08f,width,.14f,.08f,Color.rgb(238,241,243))
             drawCube(-width/2f+.08f,.08f,0f,.08f,.14f,depth,Color.rgb(238,241,243))
+        }
+        private fun drawOpening(wall:String,window:Boolean,width:Float,depth:Float,height:Float){
+            if(wall=="Нет")return
+            val w=if(window)1.25f else 1.0f;val h=if(window).86f else 2.05f
+            val y=if(window)(height*.62f).coerceIn(1.35f,height-.5f) else h/2f
+            val frame=if(window)Color.rgb(85,119,139) else Color.rgb(145,92,52)
+            val fill=if(window)Color.rgb(115,193,224) else Color.rgb(119,76,47)
+            when(wall){
+                "Задняя"->{drawCube(.55f,y,-depth/2f+.065f,w+.18f,h+.18f,.035f,frame);drawCube(.55f,y,-depth/2f+.09f,w,h,.025f,fill)}
+                "Левая"->{drawCube(-width/2f+.065f,y,.55f,.035f,h+.18f,w+.18f,frame);drawCube(-width/2f+.09f,y,.55f,.025f,h,w,fill)}
+                "Правая"->{drawCube(width/2f-.065f,y,-.55f,.035f,h+.18f,w+.18f,frame);drawCube(width/2f-.09f,y,-.55f,.025f,h,w,fill)}
+                "Передняя"->{drawCube(-.55f,y,depth/2f-.065f,w+.18f,h+.18f,.035f,frame);drawCube(-.55f,y,depth/2f-.09f,w,h,.025f,fill)}
+            }
         }
         private fun drawProducts(){
             products.flatMap{p->List(p.quantity.coerceIn(1,4)){p}}.take(10).forEachIndexed{index,p->

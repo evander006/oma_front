@@ -26,7 +26,8 @@ class UnifiedActivity : Activity() {
     private val omaBlue = Color.rgb(0, 101, 174)
     private val selected = Color.rgb(187, 148, 74)
     private lateinit var api: Api
-    private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() }, { openHomeHub() }) }
+    private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
+        { openHomeHub() }, { openCatalogPhotoPicker() }) }
     private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
@@ -109,6 +110,12 @@ class UnifiedActivity : Activity() {
             authMode = if (prefs.contains("demo_auth_hash")) "login" else "register"
             go("auth")
         } else go("home:hub")
+    }
+    private fun openCatalogPhotoPicker(){
+        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
+            type="image/*";addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(Intent.createChooser(intent,"Выберите фото товара"),Storefront.PICK_PHOTO)
     }
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
@@ -209,7 +216,7 @@ class UnifiedActivity : Activity() {
         },LinearLayout.LayoutParams(dp(30),dp(32)).apply {rightMargin=dp(10)})
         val heading=when(screen) {
             "auth"->"Вход и регистрация";"digital"->"Новые функции"
-            "shop:product","shop:category","shop:listing","shop:search","shop:checkout" -> shop.heading(screen)
+            "shop:product","shop:category","shop:listing","shop:search","shop:photo","shop:checkout" -> shop.heading(screen)
             else -> if (screen.startsWith("home:")) homeHub.title(screen) else when(screen) {
             "3d"->"3D-модель дома";"passport"->"Паспорт дома"
             "master"->"Знающий мастер";"masterMode"->"Кабинет мастера"
@@ -739,6 +746,14 @@ class UnifiedActivity : Activity() {
         super.onActivityResult(code,result,data)
         if (code == Storefront.PICK_CATALOG) {
             if (result == RESULT_OK && data?.data != null) shop.importCatalog(data.data!!)
+            return
+        }
+        if(code==Storefront.PICK_PHOTO){
+            if(result==RESULT_OK&&data?.data!=null){
+                val uri=data.data!!
+                runCatching{contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+                shop.analyzePhoto(uri)
+            }
             return
         }
         if (code == HomeHub.SAVE_PDF_REQUEST) {

@@ -27,6 +27,8 @@ import java.text.NumberFormat
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.zip.ZipInputStream
+import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * Demo storefront based on the supplied OMA screenshots and catalog export.
@@ -39,10 +41,12 @@ class Storefront(
     private val navigate: (String) -> Unit,
     private val changeTab: (String) -> Unit,
     private val refresh: () -> Unit,
-    private val openHomeHub: () -> Unit
+    private val openHomeHub: () -> Unit,
+    private val pickPhoto: () -> Unit
 ) {
     companion object {
         const val PICK_CATALOG = 7241
+        const val PICK_PHOTO = 7242
         private val blue = Color.rgb(0, 99, 174)
         private val ink = Color.rgb(46, 63, 78)
         private val orange = Color.rgb(246, 154, 37)
@@ -65,6 +69,10 @@ class Storefront(
     private var sorting = "Популярные"
     private var pageSize = 20
     private var showParameters = false
+    private var photoUri: Uri? = null
+    private var photoBusy = false
+    private var photoError = ""
+    private var photoMatches: List<Pair<Item, Int>> = emptyList()
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
         "Инструмент", "Мебель", "Бытовая техника", "Товары для дома",
@@ -174,11 +182,13 @@ class Storefront(
         "shop:listing" -> if (selectedSubcategory.isNotBlank()) selectedSubcategory else selectedCategory
         "shop:product" -> product(currentProduct)?.title ?: "Товар"
         "shop:search" -> "Поиск"
+        "shop:photo" -> "Поиск по фото"
         "shop:checkout" -> "Оформление заказа"
         else -> "ОМА"
     }
     fun back(screen: String): String = when (screen) {
         "shop:product" -> if (selectedSubcategory.isNotBlank()) "shop:listing" else "shop:category"
+        "shop:photo" -> ""
         "shop:listing" -> "shop:category"
         else -> ""
     }
@@ -202,6 +212,7 @@ class Storefront(
             "shop:listing" -> listing(body)
             "shop:product" -> detail(body)
             "shop:search" -> searchScreen(body)
+            "shop:photo" -> photoSearchScreen(body)
             "shop:checkout" -> checkout(body)
         }
     }
@@ -271,7 +282,10 @@ class Storefront(
             setText(searchQuery.takeIf { it.isNotEmpty() } ?: "")
         }
         container.addView(input, LinearLayout.LayoutParams(0, dp(45), 1f))
-        container.addView(text("▥", 21f), LinearLayout.LayoutParams(dp(25), dp(40)))
+        container.addView(text("▣", 21f, true, blue).apply {
+            contentDescription="Поиск по фото";gravity=Gravity.CENTER
+            setOnClickListener { pickPhoto() }
+        }, LinearLayout.LayoutParams(dp(34), dp(40)))
         input.setOnEditorActionListener { _, _, _ ->
             searchQuery = input.text.toString().trim()
             pageSize = 20
@@ -285,6 +299,9 @@ class Storefront(
         }
         body.addView(container, LinearLayout.LayoutParams(-1, dp(58)).apply {
             leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(15);bottomMargin = dp(14)
+        })
+        body.addView(text("Поиск по фото",13f,true,blue).apply{
+            setPadding(dp(18),0,dp(16),dp(8));setOnClickListener{pickPhoto()}
         })
     }
     fun home(body: LinearLayout) {
@@ -647,6 +664,86 @@ class Storefront(
                 pageSize+=20;navigate("shop:search")
             }))
         }
+    }
+
+    fun analyzePhoto(uri:Uri){
+        photoUri=uri;photoBusy=true;photoError="";photoMatches=emptyList()
+        navigate("shop:photo")
+        pool.execute{
+            val result=runCatching{
+                val source=activity.contentResolver.openInputStream(uri)?.use{BitmapFactory.decodeStream(it)}
+                    ?: error("Не удалось открыть фотографию")
+                val target=descriptor(source)
+                val candidates=products.asSequence().filter{it.image.isNotBlank()}.take(240).toList()
+                val scored=candidates.mapNotNull{item->
+                    runCatching{
+                        val bitmap=loadProductBitmap(item)?:return@runCatching null
+                        val candidate=descriptor(bitmap)
+                        val distance=candidate.indices.sumOf{i->
+                            val d=(candidate[i]-target[i]).toDouble();d*d
+                        }.let{sqrt(it)}
+                        item to (100.0/(1.0+distance*2.8)).toInt().coerceIn(1,99)
+                    }.getOrNull()
+                }.filterNotNull().sortedByDescending{it.second}.take(20)
+                if(scored.isEmpty())error("Не удалось загрузить изображения товаров")
+                scored
+            }
+            ui.post{
+                photoBusy=false
+                result.fold({photoMatches=it},{photoError=it.message?:"Ошибка анализа"})
+                navigate("shop:photo")
+            }
+        }
+    }
+
+    private fun photoSearchScreen(body:LinearLayout){
+        val preview=ImageView(activity).apply{
+            scaleType=ImageView.ScaleType.CENTER_CROP;setBackgroundColor(Color.WHITE)
+            photoUri?.let{setImageURI(it)}
+        }
+        body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
+        when{
+            photoBusy->{sectionTitle(body,"Анализируем изображение…");body.addView(ProgressBar(activity).apply{isIndeterminate=true})}
+            photoError.isNotBlank()->{
+                sectionTitle(body,"Не удалось выполнить поиск")
+                body.addView(text(photoError,14f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(14))})
+                body.addView(outlineButton("Выбрать другое фото",{pickPhoto()}),LinearLayout.LayoutParams(-1,dp(48)).apply{leftMargin=dp(16);rightMargin=dp(16)})
+            }
+            else->{
+                sectionTitle(body,"Похожие товары · ${photoMatches.size}")
+                body.addView(text("Процент показывает визуальную близость изображения, а не гарантию совпадения артикула.",12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
+                photoMatches.forEach{(item,score)->
+                    val card=horizontal().apply{setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.WHITE);setOnClickListener{openProduct(item.id)}}
+                    card.addView(photo(item,84),LinearLayout.LayoutParams(dp(84),dp(84)))
+                    val labels=vertical().apply{addView(text(item.title,14f,true).apply{maxLines=2});addView(text("Визуальное сходство: $score%",12.5f,false,blue));addView(text(price(item.price),14f,true))}
+                    card.addView(labels,LinearLayout.LayoutParams(0,dp(84),1f).apply{leftMargin=dp(12)})
+                    body.addView(card,LinearLayout.LayoutParams(-1,dp(101)).apply{leftMargin=dp(12);rightMargin=dp(12);bottomMargin=dp(5)})
+                }
+            }
+        }
+    }
+
+    private fun loadProductBitmap(item:Item):Bitmap?{
+        synchronized(imageCache){imageCache.get(item.image)}?.let{return it}
+        return if(item.image.startsWith("http")){
+            URL(item.image).openConnection().apply{connectTimeout=5000;readTimeout=7000}.getInputStream().use{BitmapFactory.decodeStream(it)}
+        }else BitmapFactory.decodeFile(item.image)
+    }
+
+    private fun descriptor(bitmap:Bitmap):FloatArray{
+        val small=Bitmap.createScaledBitmap(bitmap,48,48,true)
+        val bins=FloatArray(12);var saturation=0f;var brightness=0f;var edges=0f
+        val hsv=FloatArray(3);var previous=0f
+        for(y in 0 until 48)for(x in 0 until 48){
+            val color=small.getPixel(x,y);Color.colorToHSV(color,hsv)
+            bins[(hsv[0]/30f).toInt().coerceIn(0,11)]++
+            saturation+=hsv[1];brightness+=hsv[2]
+            val lum=(Color.red(color)*.299f+Color.green(color)*.587f+Color.blue(color)*.114f)/255f
+            if(x>0)edges+=abs(lum-previous);previous=lum
+        }
+        val n=48f*48f
+        for(i in bins.indices)bins[i]/=n
+        return bins+floatArrayOf(saturation/n,brightness/n,edges/n)
     }
     private fun checkout(body:LinearLayout){
         if(cart().isEmpty()){empty(body,"Корзина пуста"){changeTab("Каталог")};return}
