@@ -18,6 +18,10 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.*
 import android.database.sqlite.SQLiteDatabase
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import java.io.ByteArrayOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -34,8 +38,8 @@ import kotlin.math.sqrt
 /**
  * Demo storefront based on the supplied OMA screenshots and catalog export.
  * No access to official OMA user accounts, checkout or live inventory.
- * Works with built-in sample products; importing the user-supplied output.zip
- * activates the full 3,491-row offline SQLite catalog and local product images.
+ * Works with built-in sample products and an optional large offline SQLite catalog.
+ * Importing output.zip installs catalog.db; photo URLs are loaded lazily.
  */
 class Storefront(
     private val activity: Activity,
@@ -43,7 +47,9 @@ class Storefront(
     private val changeTab: (String) -> Unit,
     private val refresh: () -> Unit,
     private val openHomeHub: () -> Unit,
-    private val pickPhoto: () -> Unit
+    private val pickPhoto: () -> Unit,
+    private val isPhotoSearchVisible: () -> Boolean,
+    private val openStoryFeature: (String) -> Unit
 ) {
     companion object {
         const val PICK_CATALOG = 7241
@@ -54,6 +60,7 @@ class Storefront(
         private val soft = Color.rgb(249, 249, 249)
         private val line = Color.rgb(229, 231, 232)
         private val pool = Executors.newFixedThreadPool(4)
+        private val catalogPool = Executors.newSingleThreadExecutor()
         private val ui = Handler(Looper.getMainLooper())
         private val imageCache = object : android.util.LruCache<String, Bitmap>(24 * 1024) {
             override fun sizeOf(key: String, value: Bitmap) = value.byteCount / 1024
@@ -63,7 +70,22 @@ class Storefront(
     private val prefs: SharedPreferences =
         activity.getSharedPreferences("oma_store_offline", Activity.MODE_PRIVATE)
     private val api = Api(activity)
+    // Only visible products are materialized. The complete imported catalog stays in SQLite.
     private var products: List<Item> = demoProducts()
+    @Volatile private var catalogDb: OmaCatalogDatabase? = null
+    private var catalogCount = 0
+    private var catalogLoading = false
+    private var catalogNotice = ""
+    private var categoryMap: Map<String, List<String>> = emptyMap()
+    private var catalogStatusView: TextView? = null
+    private var pageOffset = 0
+    private var pageKey = ""
+    private var pageResult: OmaCatalogDatabase.Page? = null
+    private var pageLoading = false
+    private var pageError = ""
+    private val productCache = LinkedHashMap<String, Item>()
+    private val pendingSkuLoads = mutableSetOf<String>()
+    private val missingSkuIds = mutableSetOf<String>()
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
     private var currentProduct = ""
@@ -77,12 +99,14 @@ class Storefront(
     private var photoMatches: List<Pair<Item, Int>> = emptyList()
     private var photoAnalysisNote = ""
     private var photoDetected = ""
+    private var photoSearchToken = 0
+    private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
         "Инструмент", "Мебель", "Бытовая техника", "Товары для дома",
         "Сантехника", "Электрика", "Инженерные системы", "Спорт и отдых",
-        "Новый год", "Крепёж", "Автотовары", "Электроника",
-        "Товары для детей", "Красота и здоровье"
+        "Новый год", "Крепеж", "Автотовары", "Электроника",
+        "Товары для детей", "Красота и здоровье", "Прокат"
     )
 
     data class Item(
@@ -160,7 +184,103 @@ class Storefront(
         else NumberFormat.getNumberInstance(Locale("ru", "RU")).apply {
             minimumFractionDigits = 2;maximumFractionDigits = 2
         }.format(p) + " р."
-    private fun product(id: String): Item? = products.firstOrNull { it.id == id }
+    private fun product(id: String): Item? =
+        productCache[id] ?: products.firstOrNull { it.id == id }
+
+    private fun rememberProducts(items: List<Item>) {
+        for (item in items) productCache[item.id] = item
+        while (productCache.size > 350) {
+            productCache.remove(productCache.keys.first())
+        }
+    }
+
+    private fun loadMissingIds(ids: Collection<String>) {
+        val database = catalogDb ?: return
+        val missing = ids.filter { product(it) == null && it !in missingSkuIds && pendingSkuLoads.add(it) }
+        if (missing.isEmpty()) return
+        catalogPool.execute {
+            val found = missing.mapNotNull { sku ->
+                runCatching { database.bySku(sku) }.getOrNull()
+            }
+            ui.post {
+                pendingSkuLoads.removeAll(missing.toSet())
+                if (database === catalogDb) {
+                    missingSkuIds.addAll(missing - found.map { it.id }.toSet())
+                    rememberProducts(found)
+                    if (!activity.isFinishing && !activity.isDestroyed) refresh()
+                }
+            }
+        }
+    }
+
+    private fun requestPage(
+        key: String,
+        category: String = "",
+        subcategory: String = "",
+        search: String = "",
+        sort: String = "",
+        limit: Int = 20,
+        offset: Int = 0
+    ): OmaCatalogDatabase.Page? {
+        val db = catalogDb ?: return null
+        if (pageKey != key) {
+            pageKey = key
+            pageResult = null
+            pageLoading = true
+            pageError = ""
+            catalogPool.execute {
+                val result = runCatching {
+                    db.page(category, subcategory, search, sort, limit, offset)
+                }
+                ui.post {
+                    if (pageKey != key || db !== catalogDb) return@post
+                    pageLoading = false
+                    result.fold(
+                        { page ->
+                            pageResult = page
+                            rememberProducts(page.records)
+                        },
+                        { error -> pageError = error.message ?: "Ошибка чтения каталога" }
+                    )
+                    if (!activity.isFinishing && !activity.isDestroyed) refresh()
+                }
+            }
+        }
+        return pageResult
+    }
+
+    private fun renderPageState(body: LinearLayout) {
+        body.addView(text(
+            if (pageLoading) "Загружаем 20 товаров из базы…" else
+                pageError.ifBlank { "По вашему запросу ничего не найдено" },
+            14f, false, Color.GRAY
+        ).apply { setPadding(dp(16), dp(20), dp(16), dp(24)) })
+        if (pageLoading) body.addView(ProgressBar(activity).apply { isIndeterminate = true })
+    }
+
+    private fun pageNavigation(body: LinearLayout, page: OmaCatalogDatabase.Page, redraw: String) {
+        body.addView(text(
+            "Показано ${if (page.total == 0) 0 else pageOffset + 1}–" +
+                "${(pageOffset + page.records.size).coerceAtMost(page.total)} из ${page.total}",
+            13f, false, Color.GRAY
+        ).apply { setPadding(dp(18), dp(15), dp(16), dp(12)) })
+        val row = horizontal()
+        if (pageOffset > 0) {
+            row.addView(outlineButton("← Назад") {
+                pageOffset = (pageOffset - 20).coerceAtLeast(0)
+                navigate(redraw)
+            }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { rightMargin = dp(8) })
+        }
+        if (pageOffset + page.records.size < page.total) {
+            row.addView(button("Следующие 20 товаров →", {
+                pageOffset += 20
+                navigate(redraw)
+            }), LinearLayout.LayoutParams(0, dp(46), 1f))
+        }
+        if (row.childCount > 0) body.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(24)
+        })
+    }
 
     private fun cart(): MutableMap<String, Int> {
         val map = linkedMapOf<String, Int>()
@@ -180,7 +300,10 @@ class Storefront(
         refresh()
     }
     fun cartCount() = cart().values.sum()
-    fun total() = cart().entries.sumOf { (id, n) -> (product(id)?.price ?: 0.0) * n }
+    fun total(): Double {
+        loadMissingIds(cart().keys)
+        return cart().entries.sumOf { (id, n) -> (product(id)?.price ?: 0.0) * n }
+    }
     private fun addCart(id: String, delta: Int) {
         val map = cart()
         val count = (map[id] ?: 0) + delta
@@ -253,17 +376,20 @@ class Storefront(
         selectedCategory = cat
         selectedSubcategory = ""
         pageSize = 20
+        pageOffset = 0
         navigate("shop:category")
     }
     private fun openListing(sub: String) {
         selectedSubcategory = sub
         pageSize = 20
+        pageOffset = 0
         navigate("shop:listing")
     }
     private fun openProduct(id: String) {
         currentProduct = id
         showParameters = false
         remember(id)
+        if (catalogDb != null && product(id) == null) loadMissingIds(listOf(id))
         navigate("shop:product")
     }
 
@@ -324,6 +450,7 @@ class Storefront(
         input.setOnEditorActionListener { _, _, _ ->
             searchQuery = input.text.toString().trim()
             pageSize = 20
+            pageOffset = 0
             navigate("shop:search")
             true
         }
@@ -436,8 +563,22 @@ class Storefront(
                     setStroke(dp(3), if (index == 0) orange else Color.TRANSPARENT)
                 }
                 setPadding(dp(4), dp(4), dp(4), dp(4))
-                contentDescription = "История ${index + 1}"
-                setOnClickListener { openStory(index) }
+                contentDescription = when (index) {
+                    0 -> "Паспорт дома"
+                    1 -> "3D-модель дома"
+                    2 -> "Поиск по фото"
+                    3 -> "Знающий мастер"
+                    else -> "История ${index + 1}"
+                }
+                setOnClickListener {
+                    when (index) {
+                        0 -> openStoryFeature("home:passport")
+                        1 -> openStoryFeature("home:3d")
+                        2 -> openStoryFeature("photo")
+                        3 -> openStoryFeature("master:hub")
+                        else -> openStory(index)
+                    }
+                }
             }
             ring.addView(roundedImage(res, 8), FrameLayout.LayoutParams(-1, -1))
             promoRow.addView(ring, LinearLayout.LayoutParams(dp(110), dp(136)).apply { rightMargin = dp(6) })
@@ -457,14 +598,25 @@ class Storefront(
             })
         }
         sectionTitle(body, "Популярные товары")
-        productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
+        if (catalogDb != null) {
+            val page = requestPage("home:popular", limit = 12)
+            if (page == null) renderPageState(body)
+            else productGrid(body, page.records, buttons = false)
+        } else productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
     }
     fun catalog(body: LinearLayout) {
         searchBar(body)
-        tileGrid(body, rootCategories) { openCategory(it) }
-        val selected = products.size
-        body.addView(text("В каталоге: " + selected.toString() + " товаров", 13f, false, Color.GRAY).apply {
-            setPadding(dp(18), dp(8), dp(15), dp(8))
+        tileGrid(body, if (catalogDb != null && categoryMap.isNotEmpty())
+            categoryMap.keys.toList() else rootCategories) { openCategory(it) }
+        val catalogMessage = when {
+            catalogLoading -> catalogNotice.ifBlank { "Подготовка каталога…" }
+            catalogDb != null -> "В каталоге ОМА: ${catalogCount} товаров (показываем по 20)"
+            catalogNotice.isNotBlank() -> catalogNotice
+            else -> "Демо-каталог: ${products.size} товаров"
+        }
+        catalogStatusView = text(catalogMessage, 14f, false, if (catalogNotice.startsWith("Ошибка")) red else Color.GRAY)
+        body.addView(catalogStatusView, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin=dp(18);rightMargin=dp(15);topMargin=dp(8);bottomMargin=dp(12)
         })
         body.addView(outlineButton("Загрузить каталог из output.zip", {
             activity.startActivityForResult(
@@ -515,6 +667,27 @@ class Storefront(
     }
     private fun categoryScreen(body: LinearLayout) {
         searchBar(body)
+        if (catalogDb != null) {
+            val subcats = categoryMap[selectedCategory].orEmpty()
+            if (subcats.isNotEmpty()) tileGrid(body, subcats) { openListing(it) }
+            sectionTitle(body, "Товары категории")
+            val page = requestPage("category:$selectedCategory",
+                category = selectedCategory, limit = 8)
+            if (page == null) renderPageState(body)
+            else {
+                productGrid(body, page.records)
+                if (page.total > 8) {
+                    body.addView(outlineButton("Посмотреть все ${page.total} товаров", {
+                        selectedSubcategory = ""
+                        pageOffset = 0
+                        navigate("shop:listing")
+                    }), LinearLayout.LayoutParams(-1, dp(46)).apply {
+                        leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(20)
+                    })
+                }
+            }
+            return
+        }
         val subcats = products.filter { it.category == selectedCategory }
             .map { it.subcategory }.filter { it.isNotBlank() }.distinct()
         if (subcats.isNotEmpty()) {
@@ -559,11 +732,24 @@ class Storefront(
         menu.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(dp(1), dp(52)))
         menu.addView(half("sort", sorting) {
             sorting = sortOptions[(sortOptions.indexOf(sorting) + 1) % sortOptions.size]
+            pageOffset = 0
             navigate("shop:listing")
         },LinearLayout.LayoutParams(0, dp(52), 1f))
         body.addView(menu)
         body.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(-1, dp(1)))
         space(body, 14)
+        if (catalogDb != null) {
+            val page = requestPage("listing:$selectedCategory:$selectedSubcategory:$sorting:$pageOffset",
+                category = selectedCategory, subcategory = selectedSubcategory,
+                sort = sorting, offset = pageOffset)
+            if (page == null) renderPageState(body)
+            else {
+                if (page.records.isEmpty()) renderPageState(body)
+                else productGrid(body, page.records)
+                pageNavigation(body, page, "shop:listing")
+            }
+            return
+        }
         val items = filtered()
         if (items.isEmpty()) empty(body, "В загруженном каталоге пока нет товаров") {changeTab("Каталог")}
         else {
@@ -725,6 +911,7 @@ class Storefront(
         space(body,48)
     }
     fun cartScreen(body:LinearLayout) {
+        loadMissingIds(cart().keys)
         val items=cart().entries.mapNotNull { (id,n)->product(id)?.let { it to n } }
         if(items.isEmpty()) {
             empty(body,"В вашей корзине пусто") {changeTab("Каталог")}
@@ -796,6 +983,7 @@ class Storefront(
         })
     }
     fun favoritesScreen(body:LinearLayout){
+        loadMissingIds(favorites())
         val items=favorites().mapNotNull {product(it)}
         if (items.isEmpty()) {
             empty(body,"У вас нет избранных товаров") {changeTab("Каталог")}
@@ -804,6 +992,21 @@ class Storefront(
     private fun searchScreen(body:LinearLayout){
         searchBar(body)
         val q=searchQuery.lowercase(Locale.ROOT).trim()
+        if (catalogDb != null) {
+            if (q.isBlank()) {
+                sectionTitle(body, "Введите название товара")
+                return
+            }
+            val page = requestPage("search:$q:$pageOffset", search = q, offset = pageOffset)
+            sectionTitle(body, if (page == null) "Ищем товары…" else "Найдено: ${page.total}")
+            if (page == null) renderPageState(body)
+            else {
+                if (page.records.isEmpty()) renderPageState(body)
+                else productGrid(body, page.records)
+                pageNavigation(body, page, "shop:search")
+            }
+            return
+        }
         val matches=if(q.isBlank())emptyList() else products.filter {
             it.title.lowercase(Locale.ROOT).contains(q) ||
             it.subcategory.lowercase(Locale.ROOT).contains(q) ||
@@ -821,80 +1024,234 @@ class Storefront(
         }
     }
 
-    fun analyzePhoto(uri:Uri){
-        photoUri=uri;photoBusy=true;photoError="";photoMatches=emptyList()
-        photoAnalysisNote="";photoDetected=""
+    /** Search against the imported OMA catalog, never just the backend demo catalog. */
+    fun analyzePhoto(uri: Uri) {
+        val requestId = ++photoSearchToken
+        photoUri = uri; photoBusy = true; photoError = ""; photoMatches = emptyList()
+        photoAnalysisNote = ""; photoDetected = ""
+        photoMatchLabel = "Релевантность"
         navigate("shop:photo")
-        pool.execute{
-            val upload=runCatching{
-                activity.contentResolver.openInputStream(uri)?.use{it.readBytes()}
-                    ?: error("Не удалось открыть фотографию")
+
+        // The bundled on-device labeler responds quickly, even without a server.
+        analyzePhotoOnDevice(uri, requestId)
+
+        // A configured remote vision provider can improve the object terms later.
+        pool.execute {
+            val photoBytes = runCatching { preparePhotoUpload(uri) }
+            photoBytes.onSuccess { bytes ->
+                api.visualSearch(bytes, "image/jpeg") { remote ->
+                    remote.onSuccess { raw ->
+                        pool.execute {
+                            val result = runCatching { parseRemoteMatches(raw) }.getOrNull()
+                            ui.post {
+                                if (requestId != photoSearchToken || !isPhotoSearchVisible() || result == null) return@post
+                                val (found, terms, note) = result
+                                if (terms.isNotEmpty() && found.isNotEmpty()) {
+                                    photoMatches = found
+                                    photoDetected = terms.joinToString(", ")
+                                    photoAnalysisNote = note +
+                                        " Результаты сопоставлены со всем импортированным каталогом ОМА."
+                                    photoMatchLabel = "Релевантность"
+                                    photoBusy = false; photoError = ""
+                                    navigate("shop:photo")
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            upload.fold({bytes->
-                val mime=activity.contentResolver.getType(uri)?:"image/jpeg"
-                api.visualSearch(bytes,mime){remote->
-                    remote.fold({raw->
-                        val parsed=runCatching{parseRemoteMatches(raw)}.getOrDefault(emptyList())
-                        if(parsed.isNotEmpty()){
-                            photoMatches=parsed;photoBusy=false;photoError=""
-                            navigate("shop:photo")
-                        }else analyzePhotoLocally(uri,"ИИ-сервис не сопоставил товары из локального каталога")
-                    },{
-                        analyzePhotoLocally(uri,"ИИ-сервис временно недоступен")
-                    })
-                }
-            },{
-                ui.post{
-                    photoBusy=false;photoError=it.message?:"Ошибка анализа";navigate("shop:photo")
-                }
-            })
         }
     }
 
-    private fun parseRemoteMatches(raw:String):List<Pair<Item,Int>>{
-        val response=JSONObject(raw)
-        val detected=response.optJSONArray("detected_objects")?:JSONArray()
-        photoDetected=(0 until detected.length()).map{detected.optString(it)}
-            .filter{it.isNotBlank()}.joinToString(", ")
-        photoAnalysisNote=response.optString("note","Поиск выполнен нейросетью и визуальным ранжированием")
-        val matches=response.optJSONArray("matches")?:JSONArray()
-        return (0 until matches.length()).mapNotNull{index->
-            val match=matches.optJSONObject(index)?:return@mapNotNull null
-            val sku=match.optString("sku")
-            val name=match.optString("name")
-            val item=products.firstOrNull{it.id.equals(sku,true)}
-                ?:products.firstOrNull{it.title.equals(name,true)}
-                ?:return@mapNotNull null
-            val confidence=match.optDouble("match_score",
-                match.optDouble("visual_color_similarity",0.0))
-            item to (confidence*100.0).roundToInt().coerceIn(1,99)
-        }.distinctBy{it.first.id}.take(20)
+    /** Reduce camera files before upload; preserve correct image orientation. */
+    private fun preparePhotoUpload(uri: Uri): ByteArray {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        activity.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        } ?: error("Не удалось открыть фотографию")
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Неверный формат изображения" }
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1280) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val source = activity.contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        } ?: error("Не удалось прочитать фотографию")
+        try {
+            val orientation = runCatching {
+                activity.contentResolver.openInputStream(uri)?.use {
+                    android.media.ExifInterface(it).getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL
+                    )
+                }
+            }.getOrNull()
+            val degrees = when (orientation) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            val rotated = if (degrees == 0f) source else {
+                val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
+                Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+            }
+            try {
+                val output = ByteArrayOutputStream()
+                check(rotated.compress(Bitmap.CompressFormat.JPEG, 82, output)) {
+                    "Не удалось подготовить фотографию"
+                }
+                return output.toByteArray()
+            } finally {
+                if (rotated !== source) rotated.recycle()
+            }
+        } finally {
+            source.recycle()
+        }
     }
 
-    private fun analyzePhotoLocally(uri:Uri,reason:String){
-        pool.execute{
-            val result=runCatching{
-                val source=activity.contentResolver.openInputStream(uri)?.use{BitmapFactory.decodeStream(it)}
-                    ?:error("Не удалось открыть фотографию")
-                val target=descriptor(source)
-                val candidates=products.asSequence().filter{it.image.isNotBlank()}.take(320).toList()
-                val scored=candidates.mapNotNull{item->runCatching{
-                    val bitmap=loadProductBitmap(item)?:return@runCatching null
-                    val candidate=descriptor(bitmap)
-                    val distance=candidate.indices.sumOf{i->
-                        val d=(candidate[i]-target[i]).toDouble();d*d
-                    }.let{sqrt(it)}
-                    item to (100.0/(1.0+distance*2.8)).toInt().coerceIn(1,99)
-                }.getOrNull()}.filterNotNull().sortedByDescending{it.second}.take(20)
-                if(scored.isEmpty())error("Не удалось загрузить изображения товаров")
-                scored
+    private fun normalizedObjectTerms(label: String): List<String> {
+        val labelText = label.lowercase(Locale.ROOT).trim()
+        if (labelText.isBlank()) return emptyList()
+        // ML Kit uses English labels; map common DIY subjects to Russian catalog names.
+        val dictionary = listOf(
+            "drill" to listOf("дрель", "шуруповерт"), "power tool" to listOf("электроинструмент"),
+            "hammer" to listOf("молоток"), "screw" to listOf("шуруп", "саморез"),
+            "tool" to listOf("инструмент"), "faucet" to listOf("смеситель"),
+            "tap" to listOf("смеситель"), "sink" to listOf("раковина", "мойка"),
+            "bathtub" to listOf("ванна"), "toilet" to listOf("унитаз"),
+            "lamp" to listOf("светильник", "лампа"), "light fixture" to listOf("светильник"),
+            "bulb" to listOf("лампа", "лампочка"), "paint brush" to listOf("кисть"),
+            "paint" to listOf("краска"), "bucket" to listOf("ведро"),
+            "roller" to listOf("валик"), "tile" to listOf("плитка"),
+            "wallpaper" to listOf("обои"), "floor" to listOf("ламинат", "покрытие"),
+            "chair" to listOf("стул", "кресло"), "table" to listOf("стол"),
+            "cabinet" to listOf("шкаф", "тумба"), "shelf" to listOf("полка"),
+            "door" to listOf("дверь"), "window" to listOf("окно"),
+            "plant" to listOf("растение"), "flower pot" to listOf("горшок"),
+            "pipe" to listOf("труба"), "cable" to listOf("кабель"),
+            "lawn" to listOf("газон"), "garden" to listOf("сад"),
+            "ladder" to listOf("лестница"), "saw" to listOf("пила"),
+            "glove" to listOf("перчатки"), "broom" to listOf("веник", "щетка")
+        )
+        val translated = dictionary.filter { labelText.contains(it.first) }.flatMap { it.second }
+        return if (translated.isNotEmpty()) translated.distinct()
+            else if (labelText.any { it in 'а'..'я' || it == 'ё' }) listOf(labelText)
+            else emptyList()
+    }
+
+    /** Matching is done on a worker to keep scrolling responsive with 134k rows. */
+    private fun searchLocalTerms(terms: List<String>): List<Pair<Item, Int>> {
+        val phrases = terms.map { it.trim().lowercase(Locale.ROOT) }
+            .filter { it.length >= 3 }.distinct().take(12)
+        if (phrases.isEmpty()) return emptyList()
+        val database = catalogDb
+        val candidates = if (database != null) {
+            phrases.flatMap { term ->
+                runCatching { database.page(search = term, limit = 35).records }
+                    .getOrDefault(emptyList())
+            }.distinctBy { it.id }
+        } else products
+        val scored = candidates.asSequence().mapNotNull { item ->
+            val title = item.title.lowercase(Locale.ROOT)
+            val subcategory = item.subcategory.lowercase(Locale.ROOT)
+            val category = item.category.lowercase(Locale.ROOT)
+            val brand = item.brand.lowercase(Locale.ROOT)
+            var score = 0
+            for (phrase in phrases) {
+                val tokens = phrase.split(Regex("[^а-яёa-z0-9]+")).filter { it.length >= 3 }
+                for (token in tokens) {
+                    val stem = if (token.length >= 7) token.dropLast(2) else token
+                    score += when {
+                        title.contains(stem) -> 12
+                        subcategory.contains(stem) -> 7
+                        category.contains(stem) -> 4
+                        brand.contains(stem) -> 2
+                        else -> 0
+                    }
+                }
             }
-            ui.post{
-                photoBusy=false
-                result.fold({
-                    photoMatches=it
-                    photoAnalysisNote="$reason. Показано локальное визуальное сходство."
-                },{photoError=it.message?:"Ошибка анализа"})
+            if (score == 0) null else item to score
+        }.sortedByDescending { it.second }.take(20).toList()
+        return scored.map { it.first to it.second.coerceAtMost(100) }
+    }
+
+    private data class RemotePhotoResult(
+        val items: List<Pair<Item, Int>>, val terms: List<String>, val note: String
+    )
+
+    private fun parseRemoteMatches(raw: String): RemotePhotoResult {
+        val response = JSONObject(raw)
+        val detected = response.optJSONArray("detected_objects") ?: JSONArray()
+        val terms = (0 until detected.length()).map { detected.optString(it) }
+            .filter { it.isNotBlank() }.take(5)
+        // Server may host a small demo catalog. Its SKUs are not a full OMA index.
+        return RemotePhotoResult(
+            if (terms.isNotEmpty()) searchLocalTerms(terms) else emptyList(),
+            terms,
+            response.optString("note", "Сервер распознал предметы на фотографии.")
+        )
+    }
+
+    private fun analyzePhotoOnDevice(uri: Uri, requestId: Int) {
+        val input = runCatching { InputImage.fromFilePath(activity, uri) }
+            .getOrElse {
+                showPhotoFallback(requestId, "Не удалось открыть фото для распознавания")
+                return
+            }
+        val labeler = ImageLabeling.getClient(
+            ImageLabelerOptions.Builder().setConfidenceThreshold(0.35f).build()
+        )
+        labeler.process(input).addOnSuccessListener { labels ->
+            val recognized = labels.sortedByDescending { it.confidence }.take(5)
+            val terms = recognized.flatMap { normalizedObjectTerms(it.text) }.distinct()
+            pool.execute {
+                val results = searchLocalTerms(terms)
+                ui.post {
+                    if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                    photoMatches = results
+                    photoDetected = recognized.joinToString(", ") { it.text }
+                    photoBusy = false
+                    photoError = ""
+                    photoMatchLabel = "Релевантность"
+                    photoAnalysisNote = if (results.isNotEmpty())
+                        "Предметы распознаны на телефоне. Поиск выполнен по всему каталогу ОМА. Это возможные совпадения, не подтверждение артикула."
+                    else "Не удалось уверенно подобрать товар автоматически. Укажите название предмета ниже."
+                    navigate("shop:photo")
+                }
+            }
+        }.addOnFailureListener {
+            showPhotoFallback(requestId, "Распознавание на телефоне недоступно")
+        }.addOnCompleteListener {
+            labeler.close()
+        }
+    }
+
+    private fun showPhotoFallback(requestId: Int, message: String) {
+        ui.post {
+            if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+            photoBusy = false
+            photoError = ""
+            photoMatches = emptyList()
+            photoAnalysisNote = "$message. Можно найти товар по названию в полном каталоге."
+            navigate("shop:photo")
+        }
+    }
+
+    private fun searchPhotoByText(query: String) {
+        val terms = listOf(query.trim()).filter { it.isNotBlank() }
+        if (terms.isEmpty()) return
+        val requestId = ++photoSearchToken
+        photoBusy = true
+        navigate("shop:photo")
+        pool.execute {
+            val found = searchLocalTerms(terms)
+            ui.post {
+                if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                photoMatches = found
+                photoDetected = query
+                photoBusy = false; photoError = ""
+                photoAnalysisNote = "Поиск по уточнённому названию среди всех товаров импортированного каталога."
+                photoMatchLabel = "Релевантность"
                 navigate("shop:photo")
             }
         }
@@ -903,9 +1260,41 @@ class Storefront(
     private fun photoSearchScreen(body:LinearLayout){
         val preview=ImageView(activity).apply{
             scaleType=ImageView.ScaleType.CENTER_CROP;setBackgroundColor(Color.WHITE)
-            photoUri?.let{setImageURI(it)}
+            photoUri?.let { uri ->
+                // Decode a thumbnail in the background instead of a full camera image on UI.
+                tag = uri.toString()
+                pool.execute {
+                    val bitmap = runCatching {
+                        val options = BitmapFactory.Options().apply { inSampleSize = 4 }
+                        activity.contentResolver.openInputStream(uri)?.use {
+                            BitmapFactory.decodeStream(it, null, options)
+                        }
+                    }.getOrNull()
+                    if (bitmap != null) ui.post {
+                        if (tag == uri.toString() && !activity.isFinishing) setImageBitmap(bitmap)
+                        else bitmap.recycle()
+                    }
+                }
+            }
         }
         body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
+        body.addView(text("Изображение может отправляться на настроенный демосервер ОМА для уточнения распознавания. Если сервер недоступен, используется анализ на телефоне.", 12f, false, Color.GRAY).apply { setPadding(dp(16),dp(10),dp(16),dp(4)) })
+        val hint = EditText(activity).apply {
+            setSingleLine(true)
+            setTextColor(ink);textSize = 15f
+            this.hint = "Что изображено на фото? Например, дрель"
+            setPadding(dp(12), 0, dp(12), 0)
+            background = rounded(Color.WHITE, 8)
+        }
+        body.addView(hint, LinearLayout.LayoutParams(-1,dp(50)).apply {
+            leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(12)
+        })
+        body.addView(outlineButton("Уточнить и найти во всём каталоге", {
+            val entered = hint.text.toString().trim()
+            if (entered.isNotBlank()) searchPhotoByText(entered)
+        }),LinearLayout.LayoutParams(-1,dp(46)).apply {
+            leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(6);bottomMargin=dp(10)
+        })
         when{
             photoBusy->{sectionTitle(body,"Анализируем изображение…");body.addView(ProgressBar(activity).apply{isIndeterminate=true})}
             photoError.isNotBlank()->{
@@ -1003,106 +1392,158 @@ class Storefront(
         return result
     }
 
-    /** Import the user's own ZIP only after explicit Android picker selection. */
+    /**
+     * Stream the selected ZIP to private storage; validate schema/row count
+     * without ever materializing 134k products. Swap the database only after
+     * validation, keeping the old catalog if the new import fails.
+     */
     fun importCatalog(uri: Uri) {
-        Toast.makeText(activity,"Загружаем каталог, дождитесь завершения",Toast.LENGTH_LONG).show()
-        pool.execute {
-            val temporary=File(activity.filesDir,"oma_catalog_tmp")
-            val target=File(activity.filesDir,"oma_catalog")
-            val outcome=runCatching {
+        if (catalogLoading) {
+            Toast.makeText(activity, "Каталог уже обрабатывается", Toast.LENGTH_LONG).show()
+            return
+        }
+        catalogLoading = true
+        catalogNotice = "Начинаем импорт ZIP…"
+        catalogStatusView?.text = catalogNotice
+        Toast.makeText(activity, "Импорт выполняется в фоне. Откройте «Каталог» для прогресса.", Toast.LENGTH_LONG).show()
+
+        catalogPool.execute {
+            val temporary = File(activity.filesDir, "oma_catalog_tmp")
+            val target = File(activity.filesDir, "oma_catalog")
+            val backup = File(activity.filesDir, "oma_catalog_backup")
+            fun progress(message: String) {
+                ui.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        catalogNotice = message
+                        catalogStatusView?.text = message
+                    }
+                }
+            }
+
+            val outcome = runCatching {
                 temporary.deleteRecursively()
-                temporary.mkdirs()
-                var count=0
-                var totalBytes=0L
-                var seenDb=false
+                require(temporary.mkdirs()) { "Не удалось создать временную папку" }
+                var count = 0
+                var totalBytes = 0L
+                var nextUpdate = 8L * 1024 * 1024
+                var seenDb = false
+
                 activity.contentResolver.openInputStream(uri).use { input ->
-                    requireNotNull(input) {"Невозможно открыть ZIP"}
+                    requireNotNull(input) { "Не удалось открыть ZIP. Выберите ZIP-файл из «Загрузок»" }
                     ZipInputStream(input.buffered()).use { zip ->
-                        while(true) {
-                            val entry=zip.nextEntry?:break
+                        while (true) {
+                            val entry = zip.nextEntry ?: break
                             count++
-                            require(count<=15000) {"Слишком много файлов в архиве"}
-                            val name=entry.name.replace('\\','/')
-                            val path=when {
-                                name=="output/catalog.db" -> "catalog.db"
+                            require(count <= 15000) { "Слишком много файлов в архиве" }
+                            val name = entry.name.replace('\\', '/')
+                            val path = when {
+                                name == "output/catalog.db" || name == "catalog.db" -> "catalog.db"
                                 name.startsWith("output/images/") && !entry.isDirectory ->
                                     name.removePrefix("output/")
+                                name.startsWith("images/") && !entry.isDirectory -> name
                                 else -> null
                             }
-                            if(path!=null) {
-                                val out=File(temporary,path)
-                                require(out.canonicalPath.startsWith(temporary.canonicalPath+
-                                    File.separator)) {"Некорректный путь в ZIP"}
-                                out.parentFile?.mkdirs()
-                                FileOutputStream(out).use { os ->
-                                    val buffer=ByteArray(32768)
-                                    while(true) {
-                                        val n=zip.read(buffer)
-                                        if(n<0)break
-                                        totalBytes+=n
-                                        require(totalBytes<=150L*1024*1024) {"Архив слишком большой"}
-                                        os.write(buffer,0,n)
+                            if (path != null) {
+                                val output = File(temporary, path)
+                                require(output.canonicalPath.startsWith(
+                                    temporary.canonicalPath + File.separator
+                                )) { "Некорректный путь в ZIP" }
+                                output.parentFile?.mkdirs()
+                                FileOutputStream(output).use { stream ->
+                                    val buffer = ByteArray(32768)
+                                    while (true) {
+                                        val read = zip.read(buffer)
+                                        if (read < 0) break
+                                        totalBytes += read
+                                        require(totalBytes <= 190L * 1024 * 1024) {
+                                            "Распакованный каталог превышает 190 МБ"
+                                        }
+                                        stream.write(buffer, 0, read)
+                                        if (totalBytes >= nextUpdate) {
+                                            nextUpdate += 8L * 1024 * 1024
+                                            progress("Распаковано ${totalBytes / 1024 / 1024} МБ…")
+                                        }
                                     }
                                 }
-                                if(path=="catalog.db")seenDb=true
+                                if (path == "catalog.db") seenDb = true
                             }
                             zip.closeEntry()
                         }
                     }
                 }
-                require(seenDb) {"В архиве нет output/catalog.db"}
-                val parsed=loadDatabase(temporary)
-                require(parsed.isNotEmpty()) {"Каталог пуст"}
-                target.deleteRecursively()
-                require(temporary.renameTo(target)) {"Не удалось сохранить каталог"}
-                val local=loadDatabase(target)
-                local
+
+                require(seenDb) { "В ZIP нет output/catalog.db. Нужен архив каталога ОМА." }
+                progress("Проверяем SQLite и считаем товары…")
+                val db = OmaCatalogDatabase(temporary)
+                val total = db.validate()
+                require(total > 0) { "Каталог не содержит товаров" }
+                val categories = db.categories()
+
+                // Replace only after the imported database is verified.
+                backup.deleteRecursively()
+                if (target.exists()) require(target.renameTo(backup)) {
+                    "Не удалось подготовить замену предыдущего каталога"
+                }
+                if (!temporary.renameTo(target)) {
+                    if (backup.exists()) backup.renameTo(target)
+                    error("Не удалось сохранить каталог: проверьте свободную память телефона")
+                }
+                backup.deleteRecursively()
+                total to categories
             }
+
             ui.post {
-                outcome.fold({ records ->
-                    products=records
-                    Toast.makeText(activity,"Загружено товаров: "+records.size,Toast.LENGTH_LONG).show()
-                    changeTab("Каталог")
-                },{ex ->
+                catalogLoading = false
+                outcome.fold({ (total, categories) ->
+                    catalogDb = OmaCatalogDatabase(target)
+                    catalogCount = total
+                    categoryMap = categories
+                    products = emptyList()
+                    productCache.clear()
+                    missingSkuIds.clear()
+                    pageKey = ""
+                    pageResult = null
+                    pageOffset = 0
+                    catalogNotice = "Каталог успешно загружен: $total товаров"
+                    Toast.makeText(activity, catalogNotice, Toast.LENGTH_LONG).show()
+                    if (!activity.isFinishing && !activity.isDestroyed) changeTab("Каталог")
+                }, { error ->
                     temporary.deleteRecursively()
-                    Toast.makeText(activity,"Ошибка импорта: "+(ex.message?:"Неверный архив"),Toast.LENGTH_LONG).show()
+                    catalogNotice = "Ошибка импорта: ${error.message ?: "Неверный архив"}"
+                    catalogStatusView?.text = catalogNotice
+                    Toast.makeText(activity, catalogNotice, Toast.LENGTH_LONG).show()
                 })
             }
         }
     }
-    private fun loadDatabase(dir:File):List<Item> {
-        val file=File(dir,"catalog.db")
-        if(!file.exists())return emptyList()
-        val db=SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY)
-        return try {
-            val list=ArrayList<Item>()
-            db.rawQuery(
-                "SELECT sku,name,category_path,price,old_price,unit,image_files,image_urls,brand "+
-                "FROM products WHERE sku IS NOT NULL AND name IS NOT NULL",null
-            ).use { cursor ->
-                while(cursor.moveToNext()) {
-                    val id=cursor.getString(0)?:continue
-                    val name=cursor.getString(1)?:continue
-                    val cats=(cursor.getString(2)?:"").split(" / ")
-                    val images=JSONArray(cursor.getString(6)?:"[]")
-                    val remote=JSONArray(cursor.getString(7)?:"[]")
-                    val local=images.optString(0,"")
-                    val actual=if(local.isNotBlank())File(dir,local) else null
-                    val image=if(actual!=null && actual.isFile && actual.canonicalPath.startsWith(
-                        dir.canonicalPath+File.separator)) actual.path else remote.optString(0,"")
-                    val p=cursor.getString(3)?.toDoubleOrNull()
-                    val old=cursor.getString(4)?.toDoubleOrNull()
-                    list.add(Item(id,name,cats.firstOrNull().orEmpty(),
-                        cats.getOrElse(1){""},p,old,cursor.getString(5)?:"шт",image,
-                        cursor.getString(8)?:""))
-                }
-            }
-            list
-        } finally {db.close()}
-    }
+
+    /** Only metadata is read at startup. Pages are loaded on demand. */
     fun loadExistingCatalog() {
-        val saved=runCatching { loadDatabase(File(activity.filesDir,"oma_catalog")) }.getOrNull()
-        if(!saved.isNullOrEmpty())products=saved
+        val directory = File(activity.filesDir, "oma_catalog")
+        if (!File(directory, "catalog.db").isFile) return
+        catalogLoading = true
+        catalogNotice = "Проверяем сохранённый каталог…"
+        catalogPool.execute {
+            val saved = runCatching {
+                val db = OmaCatalogDatabase(directory)
+                Triple(db, db.validate(), db.categories())
+            }
+            ui.post {
+                catalogLoading = false
+                saved.fold({ (db, total, categories) ->
+                    catalogDb = db
+                    catalogCount = total
+                    categoryMap = categories
+                    products = emptyList()
+                    catalogNotice = ""
+                    pageKey = ""
+                    pageResult = null
+                }, { error ->
+                    catalogNotice = "Ошибка сохранённого каталога: ${error.message}"
+                })
+                if (!activity.isFinishing && !activity.isDestroyed) refresh()
+            }
+        }
     }
     private fun demoProducts():List<Item> = listOf(
         Item("2.255933","Ламинат Sunfloor Сосна Тахо 52 33 кл.","Интерьер и отделка","Напольные покрытия",8.40,null,"шт","https://www.oma.by/upload/images/resize/products/c6/bb/2410171/350x350_in.jpg"),

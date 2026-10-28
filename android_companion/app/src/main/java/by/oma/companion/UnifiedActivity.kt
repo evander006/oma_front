@@ -2,12 +2,16 @@ package by.oma.companion
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ClipData
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -17,6 +21,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.io.File
 
 /** Unofficial hackathon demo; reproduces the profile layout but does not alter the OMA APK. */
 class UnifiedActivity : Activity() {
@@ -27,7 +32,8 @@ class UnifiedActivity : Activity() {
     private val selected = Style.ORANGE
     private lateinit var api: Api
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
-        { openHomeHub() }, { openCatalogPhotoPicker() }) }
+        { openHomeHub() }, { openCatalogPhotoPicker() }, { screen == "shop:photo" },
+        { route -> launchStoryFeature(route) }) }
     private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
     private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
     private lateinit var body: LinearLayout
@@ -44,7 +50,12 @@ class UnifiedActivity : Activity() {
     private var propertyId = 0
     private var query = ""
     private val pickPhoto = 182
+    private val takeCatalogPhoto = 7243
+    private var pendingCameraUri: Uri? = null
     private var web: WebView? = null
+    private var introActive = true
+    private var introPage = 0
+    private var launchIntro: LaunchOnboarding? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +63,9 @@ class UnifiedActivity : Activity() {
         window.navigationBarColor = Color.WHITE
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         api = Api(this)
+        pendingCameraUri = savedInstanceState?.getString("pendingCameraUri")?.let(Uri::parse)
+        introActive = savedInstanceState?.getBoolean("introActive") ?: true
+        introPage = savedInstanceState?.getInt("introPage") ?: 0
         shop.loadExistingCatalog()
         contractorId = prefs.getInt("contractor", 0)
         masterId = contractorId
@@ -70,15 +84,41 @@ class UnifiedActivity : Activity() {
         out.putBoolean("featurePopupOpen", featurePopupOpen)
         out.putBoolean("pendingFeatureLogin", pendingFeatureLogin)
         out.putString("featureOriginScreen", featureOriginScreen)
+        out.putString("pendingCameraUri", pendingCameraUri?.toString())
+        out.putBoolean("introActive", introActive)
+        out.putInt("introPage", launchIntro?.currentPage ?: introPage)
         super.onSaveInstanceState(out)
     }
     override fun onDestroy() { web?.destroy(); homeHub.closePreview(); api.close(); super.onDestroy() }
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (introActive && launchIntro?.onTouchEvent(event) == true) return true
+        return super.dispatchTouchEvent(event)
+    }
     private fun dp(n:Int):Int = Style.dp(this,n)
     private fun signedIn():Boolean = prefs.getBoolean("registered",false)
     private fun notice(s:String) { Toast.makeText(this,s,Toast.LENGTH_LONG).show() }
     private fun active(id:Int):Boolean = generation == id && !isFinishing
     private fun go(s:String) { screen=s; featurePopupOpen=false; render() }
     private fun tabTo(s:String) { tab=s; screen=""; featurePopupOpen=false; render() }
+
+    private fun finishLaunchIntro() {
+        if (!introActive) return
+        introActive = false
+        launchIntro = null
+        tab = "Главная"
+        screen = ""
+        render()
+    }
+
+    private fun launchStoryFeature(route: String) {
+        if (route == "photo") {
+            openCatalogPhotoPicker()
+        } else {
+            // Reuse existing auth gating, home, 3D and masters destinations.
+            featureOriginScreen = route
+            chooseFeature(route)
+        }
+    }
     private fun openFeaturePromo() {
         featureOriginScreen = screen
         if (!signedIn()) {
@@ -113,15 +153,46 @@ class UnifiedActivity : Activity() {
             go("auth")
         } else go("home:hub")
     }
-    private fun openCatalogPhotoPicker(){
-        val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply{
-            type="image/*";addCategory(Intent.CATEGORY_OPENABLE)
+    private fun openCatalogPhotoPicker() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Поиск товара по фото")
+            .setItems(arrayOf("Сделать фото", "Выбрать из галереи")) { _, choice ->
+                if (choice == 0) openCatalogCamera() else openCatalogGallery()
+            }.show()
+    }
+
+    private fun openCatalogGallery() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE)
         }
-        startActivityForResult(Intent.createChooser(intent,"Выберите фото товара"),Storefront.PICK_PHOTO)
+        runCatching {
+            startActivityForResult(intent, Storefront.PICK_PHOTO)
+        }.onFailure { notice("Не удалось открыть галерею: ${it.message}") }
+    }
+
+    private fun openCatalogCamera() {
+        runCatching {
+            val folder = File(cacheDir, "camera_photos").apply { mkdirs() }
+            val image = File.createTempFile("oma_photo_", ".jpg", folder)
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", image)
+            pendingCameraUri = uri
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                clipData = ClipData.newUri(contentResolver, "Фото товара", uri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivityForResult(intent, takeCatalogPhoto)
+        }.onFailure {
+            pendingCameraUri = null
+            notice("Не удалось открыть камеру: ${it.message}")
+        }
     }
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
         when {
+            introActive -> {
+                if (introPage > 0) launchIntro?.previous() else finishLaunchIntro()
+            }
             featurePopupOpen -> { featurePopupOpen = false; render() }
             screen == "auth" && pendingFeatureLogin -> {
                 pendingFeatureLogin = false
@@ -210,6 +281,17 @@ class UnifiedActivity : Activity() {
         target.addView(label(text,14f).apply {setPadding(dp(17),dp(15),dp(12),dp(15))})
     }
     private fun render() {
+        if (introActive) {
+            if (launchIntro == null) {
+                launchIntro = LaunchOnboarding(
+                    this,
+                    initialPage = introPage,
+                    onPageChanged = { introPage = it },
+                    onComplete = { finishLaunchIntro() }
+                ).also { it.show() }
+            }
+            return
+        }
         generation++
         web?.destroy();web=null
         val root=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setBackgroundColor(surface)}
@@ -726,10 +808,7 @@ class UnifiedActivity : Activity() {
         note("Поиск по демо-каталогу; для фотографии используется распознавание категорий при наличии AI на сервере.")
         val value=input("Название товара",query)
         button("Найти товары") {query=value.text.toString().trim();products(query)}
-        button("Поиск по фотографии") {
-            val intent=Intent(Intent.ACTION_GET_CONTENT).apply {type="image/*";addCategory(Intent.CATEGORY_OPENABLE)}
-            startActivityForResult(Intent.createChooser(intent,"Выберите фото"),pickPhoto)
-        }
+        button("Поиск по фотографии") { openCatalogPhotoPicker() }
         if(query.isNotBlank()) products(query)
         else note("Введите запрос или выберите фотографию.")
     }
@@ -766,6 +845,12 @@ class UnifiedActivity : Activity() {
         super.onActivityResult(code,result,data)
         if (code == Storefront.PICK_CATALOG) {
             if (result == RESULT_OK && data?.data != null) shop.importCatalog(data.data!!)
+            return
+        }
+        if (code == takeCatalogPhoto) {
+            val uri = pendingCameraUri
+            pendingCameraUri = null
+            if (result == RESULT_OK && uri != null) shop.analyzePhoto(uri)
             return
         }
         if(code==Storefront.PICK_PHOTO){
