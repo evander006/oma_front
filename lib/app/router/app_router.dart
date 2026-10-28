@@ -20,6 +20,7 @@ import 'package:oma/features/my_home/presentation/room_purchases_screen.dart';
 import 'package:oma/features/my_home/presentation/room_screen.dart';
 import 'package:oma/features/my_home/presentation/suggestions_screen.dart';
 import 'package:oma/features/onboarding/presentation/onboarding_screens.dart';
+import 'package:oma/features/onboarding/presentation/launch_intro_screen.dart';
 import 'package:oma/features/orders/presentation/orders_screen.dart';
 import 'package:oma/features/product_details/presentation/product_screen.dart';
 import 'package:oma/features/profile/presentation/profile_screen.dart';
@@ -33,8 +34,12 @@ import 'package:oma/widgets/oma_chrome.dart';
 
 GoRouter buildRouter() {
   return GoRouter(
-    initialLocation: AppRoutes.home,
+    initialLocation: AppRoutes.launchIntro,
     routes: [
+      GoRoute(
+        path: AppRoutes.launchIntro,
+        builder: (context, state) => const LaunchIntroScreen(),
+      ),
       GoRoute(
         path: AppRoutes.onboarding,
         builder: (context, state) => const OnboardingWelcomeScreen(),
