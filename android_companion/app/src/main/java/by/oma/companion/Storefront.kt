@@ -34,8 +34,8 @@ import kotlin.math.sqrt
 /**
  * Demo storefront based on the supplied OMA screenshots and catalog export.
  * No access to official OMA user accounts, checkout or live inventory.
- * Works with built-in sample products; importing the user-supplied output.zip
- * activates the full 3,491-row offline SQLite catalog and local product images.
+ * Works with built-in sample products and an optional large offline SQLite catalog.
+ * Importing output.zip installs catalog.db; photo URLs are loaded lazily.
  */
 class Storefront(
     private val activity: Activity,
@@ -64,6 +64,7 @@ class Storefront(
         activity.getSharedPreferences("oma_store_offline", Activity.MODE_PRIVATE)
     private val api = Api(activity)
     private var products: List<Item> = demoProducts()
+    private var catalogLoading = false
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
     private var currentProduct = ""
@@ -81,8 +82,8 @@ class Storefront(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
         "Инструмент", "Мебель", "Бытовая техника", "Товары для дома",
         "Сантехника", "Электрика", "Инженерные системы", "Спорт и отдых",
-        "Новый год", "Крепёж", "Автотовары", "Электроника",
-        "Товары для детей", "Красота и здоровье"
+        "Новый год", "Крепеж", "Автотовары", "Электроника",
+        "Товары для детей", "Красота и здоровье", "Прокат"
     )
 
     data class Item(
@@ -461,8 +462,8 @@ class Storefront(
     fun catalog(body: LinearLayout) {
         searchBar(body)
         tileGrid(body, rootCategories) { openCategory(it) }
-        val selected = products.size
-        body.addView(text("В каталоге: " + selected.toString() + " товаров", 13f, false, Color.GRAY).apply {
+        val catalogMessage = if (catalogLoading) "Загружаем сохранённый каталог…" else "В каталоге: ${products.size} товаров"
+        body.addView(text(catalogMessage, 13f, false, Color.GRAY).apply {
             setPadding(dp(18), dp(8), dp(15), dp(8))
         })
         body.addView(outlineButton("Загрузить каталог из output.zip", {
@@ -1089,8 +1090,18 @@ class Storefront(
         } finally {db.close()}
     }
     fun loadExistingCatalog() {
-        val saved=runCatching { loadDatabase(File(activity.filesDir,"oma_catalog")) }.getOrNull()
-        if(!saved.isNullOrEmpty())products=saved
+        val directory = File(activity.filesDir, "oma_catalog")
+        if (!File(directory, "catalog.db").isFile) return
+        // Large catalogs must never block Android's main thread during app launch.
+        catalogLoading = true
+        pool.execute {
+            val saved = runCatching { loadDatabase(directory) }.getOrNull()
+            ui.post {
+                if (!saved.isNullOrEmpty()) products = saved
+                catalogLoading = false
+                if (!activity.isFinishing && !activity.isDestroyed) refresh()
+            }
+        }
     }
     private fun demoProducts():List<Item> = listOf(
         Item("2.255933","Ламинат Sunfloor Сосна Тахо 52 33 кл.","Интерьер и отделка","Напольные покрытия",8.40,null,"шт","https://www.oma.by/upload/images/resize/products/c6/bb/2410171/350x350_in.jpg"),
