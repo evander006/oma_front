@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.11.0-search-3d-polish"
+        versionCode = 12
+        versionName = "0.12.0-photo-pdf-fix"
     }
     buildTypes {
         release { isMinifyEnabled = false }
@@ -20,4 +20,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+}
+
+dependencies {
+    implementation("androidx.core:core:1.15.0")
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 }
