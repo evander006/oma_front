@@ -47,7 +47,8 @@ class Storefront(
     private val changeTab: (String) -> Unit,
     private val refresh: () -> Unit,
     private val openHomeHub: () -> Unit,
-    private val pickPhoto: () -> Unit
+    private val pickPhoto: () -> Unit,
+    private val isPhotoSearchVisible: () -> Boolean
 ) {
     companion object {
         const val PICK_CATALOG = 7241
@@ -836,7 +837,7 @@ class Storefront(
                         pool.execute {
                             val result = runCatching { parseRemoteMatches(raw) }.getOrNull()
                             ui.post {
-                                if (requestId != photoSearchToken || result == null) return@post
+                                if (requestId != photoSearchToken || !isPhotoSearchVisible() || result == null) return@post
                                 val (found, terms, note) = result
                                 if (terms.isNotEmpty() && found.isNotEmpty()) {
                                     photoMatches = found
@@ -992,7 +993,7 @@ class Storefront(
             pool.execute {
                 val results = searchLocalTerms(terms)
                 ui.post {
-                    if (requestId != photoSearchToken) return@post
+                    if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
                     photoMatches = results
                     photoDetected = recognized.joinToString(", ") { it.text }
                     photoBusy = false
@@ -1013,7 +1014,7 @@ class Storefront(
 
     private fun showPhotoFallback(requestId: Int, message: String) {
         ui.post {
-            if (requestId != photoSearchToken) return@post
+            if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
             photoBusy = false
             photoError = ""
             photoMatches = emptyList()
@@ -1031,7 +1032,7 @@ class Storefront(
         pool.execute {
             val found = searchLocalTerms(terms)
             ui.post {
-                if (requestId != photoSearchToken) return@post
+                if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
                 photoMatches = found
                 photoDetected = query
                 photoBusy = false; photoError = ""
@@ -1063,6 +1064,7 @@ class Storefront(
             }
         }
         body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
+        body.addView(text("Изображение может отправляться на настроенный демосервер ОМА для уточнения распознавания. Если сервер недоступен, используется анализ на телефоне.", 12f, false, Color.GRAY).apply { setPadding(dp(16),dp(10),dp(16),dp(4)) })
         val hint = EditText(activity).apply {
             setSingleLine(true)
             setTextColor(ink);textSize = 15f
