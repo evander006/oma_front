@@ -60,6 +60,7 @@ class Storefront(
         private val soft = Color.rgb(249, 249, 249)
         private val line = Color.rgb(229, 231, 232)
         private val pool = Executors.newFixedThreadPool(4)
+        private val catalogPool = Executors.newSingleThreadExecutor()
         private val ui = Handler(Looper.getMainLooper())
         private val imageCache = object : android.util.LruCache<String, Bitmap>(24 * 1024) {
             override fun sizeOf(key: String, value: Bitmap) = value.byteCount / 1024
@@ -69,8 +70,21 @@ class Storefront(
     private val prefs: SharedPreferences =
         activity.getSharedPreferences("oma_store_offline", Activity.MODE_PRIVATE)
     private val api = Api(activity)
+    // Only visible products are materialized. The complete imported catalog stays in SQLite.
     private var products: List<Item> = demoProducts()
+    @Volatile private var catalogDb: OmaCatalogDatabase? = null
+    private var catalogCount = 0
     private var catalogLoading = false
+    private var catalogNotice = ""
+    private var categoryMap: Map<String, List<String>> = emptyMap()
+    private var catalogStatusView: TextView? = null
+    private var pageOffset = 0
+    private var pageKey = ""
+    private var pageResult: OmaCatalogDatabase.Page? = null
+    private var pageLoading = false
+    private var pageError = ""
+    private val productCache = LinkedHashMap<String, Item>()
+    private val pendingSkuLoads = mutableSetOf<String>()
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
     private var currentProduct = ""
@@ -169,7 +183,102 @@ class Storefront(
         else NumberFormat.getNumberInstance(Locale("ru", "RU")).apply {
             minimumFractionDigits = 2;maximumFractionDigits = 2
         }.format(p) + " р."
-    private fun product(id: String): Item? = products.firstOrNull { it.id == id }
+    private fun product(id: String): Item? =
+        productCache[id] ?: products.firstOrNull { it.id == id }
+
+    private fun rememberProducts(items: List<Item>) {
+        for (item in items) productCache[item.id] = item
+        while (productCache.size > 350) {
+            productCache.remove(productCache.keys.first())
+        }
+    }
+
+    private fun loadMissingIds(ids: Collection<String>) {
+        val database = catalogDb ?: return
+        val missing = ids.filter { product(it) == null && pendingSkuLoads.add(it) }
+        if (missing.isEmpty()) return
+        catalogPool.execute {
+            val found = missing.mapNotNull { sku ->
+                runCatching { database.bySku(sku) }.getOrNull()
+            }
+            ui.post {
+                pendingSkuLoads.removeAll(missing.toSet())
+                if (database === catalogDb) {
+                    rememberProducts(found)
+                    if (!activity.isFinishing && !activity.isDestroyed) refresh()
+                }
+            }
+        }
+    }
+
+    private fun requestPage(
+        key: String,
+        category: String = "",
+        subcategory: String = "",
+        search: String = "",
+        sort: String = "",
+        limit: Int = 20,
+        offset: Int = 0
+    ): OmaCatalogDatabase.Page? {
+        val db = catalogDb ?: return null
+        if (pageKey != key) {
+            pageKey = key
+            pageResult = null
+            pageLoading = true
+            pageError = ""
+            catalogPool.execute {
+                val result = runCatching {
+                    db.page(category, subcategory, search, sort, limit, offset)
+                }
+                ui.post {
+                    if (pageKey != key || db !== catalogDb) return@post
+                    pageLoading = false
+                    result.fold(
+                        { page ->
+                            pageResult = page
+                            rememberProducts(page.records)
+                        },
+                        { error -> pageError = error.message ?: "Ошибка чтения каталога" }
+                    )
+                    if (!activity.isFinishing && !activity.isDestroyed) refresh()
+                }
+            }
+        }
+        return pageResult
+    }
+
+    private fun renderPageState(body: LinearLayout) {
+        body.addView(text(
+            if (pageLoading) "Загружаем 20 товаров из базы…" else
+                pageError.ifBlank { "По вашему запросу ничего не найдено" },
+            14f, false, Color.GRAY
+        ).apply { setPadding(dp(16), dp(20), dp(16), dp(24)) })
+        if (pageLoading) body.addView(ProgressBar(activity).apply { isIndeterminate = true })
+    }
+
+    private fun pageNavigation(body: LinearLayout, page: OmaCatalogDatabase.Page, redraw: String) {
+        body.addView(text(
+            "Показано ${if (page.total == 0) 0 else pageOffset + 1}–" +
+                "${(pageOffset + page.records.size).coerceAtMost(page.total)} из ${page.total}",
+            13f, false, Color.GRAY
+        ).apply { setPadding(dp(18), dp(15), dp(16), dp(12)) })
+        val row = horizontal()
+        if (pageOffset > 0) {
+            row.addView(outlineButton("← Назад") {
+                pageOffset = (pageOffset - 20).coerceAtLeast(0)
+                navigate(redraw)
+            }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { rightMargin = dp(8) })
+        }
+        if (pageOffset + page.records.size < page.total) {
+            row.addView(button("Следующие 20 товаров →", {
+                pageOffset += 20
+                navigate(redraw)
+            }), LinearLayout.LayoutParams(0, dp(46), 1f))
+        }
+        if (row.childCount > 0) body.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(24)
+        })
+    }
 
     private fun cart(): MutableMap<String, Int> {
         val map = linkedMapOf<String, Int>()
@@ -262,17 +371,20 @@ class Storefront(
         selectedCategory = cat
         selectedSubcategory = ""
         pageSize = 20
+        pageOffset = 0
         navigate("shop:category")
     }
     private fun openListing(sub: String) {
         selectedSubcategory = sub
         pageSize = 20
+        pageOffset = 0
         navigate("shop:listing")
     }
     private fun openProduct(id: String) {
         currentProduct = id
         showParameters = false
         remember(id)
+        if (catalogDb != null && product(id) == null) loadMissingIds(listOf(id))
         navigate("shop:product")
     }
 
@@ -333,6 +445,7 @@ class Storefront(
         input.setOnEditorActionListener { _, _, _ ->
             searchQuery = input.text.toString().trim()
             pageSize = 20
+            pageOffset = 0
             navigate("shop:search")
             true
         }
