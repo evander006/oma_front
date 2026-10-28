@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - codex/oma-unified-demo
+      - main
     paths:
       - 'android_companion/**'
       - '.github/workflows/companion-android.yml'
