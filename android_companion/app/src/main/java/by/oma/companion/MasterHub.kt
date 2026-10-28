@@ -21,8 +21,8 @@ class MasterHub(
     private val selectedHome:()->String?
 ){
     private val blue=Style.BLUE
-    private val ink=Color.rgb(43,58,70)
-    private val line=Color.rgb(225,230,233)
+    private val ink=Style.DARK
+    private val line=Style.BORDER
     private val prefs=activity.getSharedPreferences("oma_master_hub",Activity.MODE_PRIVATE)
     private var selectedId="m1"
     private var filter="Все специалисты"
@@ -62,14 +62,19 @@ class MasterHub(
 
     private fun dp(n:Int)=Style.dp(activity,n)
     private fun text(value:String,size:Float=15f,bold:Boolean=false,color:Int=ink)=TextView(activity).apply{
-        text=value;textSize=size;setTextColor(color);gravity=Gravity.CENTER_VERTICAL
+        text=value;textSize=size;setTextColor(color);gravity=Gravity.CENTER_VERTICAL;includeFontPadding=false
         if(bold)setTypeface(null,Typeface.BOLD)
     }
     private fun heading(body:LinearLayout,value:String)=body.addView(text(value,21f,true).apply{setPadding(dp(16),dp(20),dp(16),dp(12))})
     private fun note(body:LinearLayout,value:String)=body.addView(text(value,13f,false,Color.GRAY).apply{setPadding(dp(16),dp(5),dp(16),dp(13))})
     private fun button(body:LinearLayout,value:String,filled:Boolean=true,action:()->Unit){
         body.addView(text(value,15f,true,if(filled)Color.WHITE else blue).apply{
-            gravity=Gravity.CENTER;background=Style.bg(if(filled)blue else Color.WHITE,8f,if(filled)blue else line);setOnClickListener{action()}
+            gravity=Gravity.CENTER
+            background=Style.interactiveBg(if(filled)blue else Color.WHITE,
+                if(filled)Style.BRAND_RED_DARK else Style.BRAND_RED_SOFT,8f,
+                if(filled)blue else line)
+            isClickable=true;isFocusable=true;contentDescription=value
+            setOnClickListener{action()}
         },LinearLayout.LayoutParams(-1,dp(50)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(7);bottomMargin=dp(7)})
     }
     private fun divider(body:LinearLayout)=body.addView(View(activity).apply{setBackgroundColor(line)},LinearLayout.LayoutParams(-1,dp(1)))
@@ -95,7 +100,7 @@ class MasterHub(
         masters.filter{filter=="Все специалисты"||it.specialty==filter}.forEach{masterCard(body,it)}
     }
     private fun masterCard(body:LinearLayout,m:Master){
-        val card=LinearLayout(activity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(13),dp(15),dp(13));background=Style.bg(Color.WHITE,9f,line);setOnClickListener{selectedId=m.id;navigate("master:detail")}}
+        val card=LinearLayout(activity).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(15),dp(13),dp(15),dp(13));background=Style.interactiveBg(Color.WHITE,Style.BRAND_RED_SOFT,9f,line);elevation=dp(1).toFloat();isClickable=true;isFocusable=true;contentDescription="${m.name}, ${m.specialty}, рейтинг ${m.rating}";setOnClickListener{selectedId=m.id;navigate("master:detail")}}
         val top=LinearLayout(activity).apply{orientation=LinearLayout.HORIZONTAL}
         top.addView(text(m.name,17f,true),LinearLayout.LayoutParams(0,dp(32),1f))
         top.addView(text("★ ${m.rating}",15f,true,Color.rgb(231,151,20)))

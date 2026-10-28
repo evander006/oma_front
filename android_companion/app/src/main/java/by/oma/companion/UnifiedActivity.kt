@@ -21,10 +21,10 @@ import java.net.URLEncoder
 /** Unofficial hackathon demo; reproduces the profile layout but does not alter the OMA APK. */
 class UnifiedActivity : Activity() {
     private val ink = Color.rgb(47, 58, 67)
-    private val faint = Color.rgb(225, 225, 225)
-    private val surface = Color.rgb(250, 250, 250)
-    private val omaBlue = Color.rgb(0, 101, 174)
-    private val selected = Color.rgb(187, 148, 74)
+    private val faint = Style.BORDER
+    private val surface = Style.BACK
+    private val omaBlue = Style.BRAND_RED
+    private val selected = Style.BRAND_RED
     private lateinit var api: Api
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
         { openHomeHub() }, { openCatalogPhotoPicker() }) }
@@ -48,7 +48,7 @@ class UnifiedActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(150,150,150)
+        window.statusBarColor = Style.BRAND_RED_DARK
         window.navigationBarColor = Color.WHITE
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         api = Api(this)
@@ -148,6 +148,7 @@ class UnifiedActivity : Activity() {
         TextView(this).apply {
             this.text=text; textSize=size; setTextColor(color)
             gravity=Gravity.CENTER_VERTICAL
+            includeFontPadding=false
             if (bold) setTypeface(null,android.graphics.Typeface.BOLD)
         }
     private fun icon(name:String,size:Int=28,color:Int=ink):View =
@@ -170,8 +171,10 @@ class UnifiedActivity : Activity() {
     private fun row(text:String,glyph:String,onClick:()->Unit,arrow:Boolean=false) {
         val item=LinearLayout(this).apply {
             orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL
-            setBackgroundColor(surface); setPadding(dp(17),0,dp(17),0)
-            isClickable=true; setOnClickListener { onClick() }
+            background=Style.interactiveBg(Color.WHITE,Style.PRESSED,0f)
+            setPadding(dp(17),0,dp(17),0)
+            isClickable=true;isFocusable=true;contentDescription=text
+            setOnClickListener { onClick() }
         }
         item.addView(icon(glyph,27),LinearLayout.LayoutParams(dp(27),dp(27)))
         item.addView(label(text),LinearLayout.LayoutParams(0,-1,1f).apply{leftMargin=dp(18)})
@@ -213,6 +216,7 @@ class UnifiedActivity : Activity() {
         val header=LinearLayout(this).apply {
             gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE)
             setPadding(dp(16),0,dp(16),0)
+            elevation=dp(2).toFloat()
         }
         if (screen != "") header.addView(icon("back",24).apply {
             setOnClickListener {onBackPressed()}
@@ -246,6 +250,9 @@ class UnifiedActivity : Activity() {
         listOf(Pair("Главная","grid"),Pair("Каталог","search"),Pair("Корзина","bag"),
             Pair("Избранное","heart"),Pair("Профиль","profile")).forEach { (name,glyph) ->
             val col=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
+                isClickable=true;isFocusable=true
+                contentDescription=if(tab==name) "$name, выбрано" else name
+                background=Style.interactiveBg(Color.WHITE,Style.BRAND_RED_SOFT,0f)
                 setOnClickListener {tabTo(name)}}
             val color=if (tab==name) selected else ink
             val iconFrame = android.widget.FrameLayout(this)
@@ -260,6 +267,10 @@ class UnifiedActivity : Activity() {
             }
             col.addView(iconFrame,LinearLayout.LayoutParams(dp(35),dp(31)))
             col.addView(label(name,10f,false,color).apply{gravity=Gravity.CENTER})
+            col.addView(View(this).apply {
+                background=Style.bg(if(tab==name) Style.BRAND_RED else Color.TRANSPARENT,2f)
+                importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            },LinearLayout.LayoutParams(dp(26),dp(3)).apply{topMargin=dp(3)})
             bottom.addView(col,LinearLayout.LayoutParams(0,-1,1f))
         }
         if (screen == "" && tab == "Корзина" && shop.cartCount() > 0) {
@@ -269,6 +280,9 @@ class UnifiedActivity : Activity() {
         val canvas = android.widget.FrameLayout(this)
         canvas.addView(root, android.widget.FrameLayout.LayoutParams(-1, -1))
         setContentView(canvas)
+        body.alpha=0f
+        body.translationY=dp(6).toFloat()
+        body.animate().alpha(1f).translationY(0f).setDuration(170L).start()
 
         // The small in-app promotional chip floats above ALL five store tabs
         // and their catalog/product pages, but stays out of sign-in and service screens.

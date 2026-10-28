@@ -23,10 +23,10 @@ import android.widget.TextView
  * a customer explicitly taps the chip and is locally signed in.
  */
 object FloatingFeatures {
-    private val blue = Color.rgb(0, 101, 174)
-    private val ink = Color.rgb(41, 64, 87)
-    private val pale = Color.argb(237, 219, 240, 251)
-    private val lighter = Color.argb(235, 244, 250, 255)
+    private val blue = Style.BRAND_RED
+    private val ink = Style.DARK
+    private val pale = Color.argb(246, 255, 239, 240)
+    private val lighter = Color.argb(248, 255, 250, 250)
 
     private fun dp(context: Context, n: Int): Int = Style.dp(context, n)
 
@@ -60,7 +60,7 @@ object FloatingFeatures {
         open: () -> Unit
     ) {
         val chip = FrameLayout(context).apply {
-            background = shape(context, pale, 19, Color.rgb(172, 217, 239))
+            background = shape(context, pale, 19, Color.rgb(246, 184, 189))
             elevation = dp(context, 10).toFloat()
             isClickable = true
             isFocusable = true
@@ -80,11 +80,11 @@ object FloatingFeatures {
         }, LinearLayout.LayoutParams(-1, dp(context, 20)))
         chip.addView(main, FrameLayout.LayoutParams(-1, -1))
 
-        val sparkleLeft = label(context, "✧", 19f, Color.rgb(91, 161, 206)).apply {
+        val sparkleLeft = label(context, "✧", 19f, Color.rgb(223, 74, 85)).apply {
             gravity = Gravity.CENTER
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        val sparkleRight = label(context, "✦", 13f, Color.rgb(104, 178, 220)).apply {
+        val sparkleRight = label(context, "✦", 13f, Color.rgb(232, 104, 113)).apply {
             gravity = Gravity.CENTER
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -145,7 +145,7 @@ object FloatingFeatures {
         }
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = shape(context, pale, 22, Color.rgb(155, 208, 234))
+            background = shape(context, pale, 22, Color.rgb(244, 174, 179))
             elevation = dp(context, 16).toFloat()
             setPadding(dp(context, 18), dp(context, 15), dp(context, 18), dp(context, 18))
             isClickable = true
@@ -156,7 +156,7 @@ object FloatingFeatures {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        top.addView(label(context, "✦", 23f, Color.rgb(95, 161, 204)),
+        top.addView(label(context, "✦", 23f, Color.rgb(223, 74, 85)),
             LinearLayout.LayoutParams(dp(context, 30), dp(context, 42)))
         top.addView(label(context, "Новые функции", 21f, blue, true),
             LinearLayout.LayoutParams(0, dp(context, 47), 1f))
@@ -170,7 +170,7 @@ object FloatingFeatures {
         card.addView(top)
 
         card.addView(label(context,
-            "✧  Ваш дом — в одном приложении  ✧", 12.5f, Color.rgb(79, 126, 165)
+            "✧  Ваш дом — в одном приложении  ✧", 12.5f, Style.MUTED
         ).apply { gravity = Gravity.CENTER; setPadding(0, 0, 0, dp(context, 8)) },
             LinearLayout.LayoutParams(-1, dp(context, 39)))
 
@@ -184,7 +184,7 @@ object FloatingFeatures {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = shape(context, lighter, 10, Color.rgb(188, 223, 244))
+                background = shape(context, lighter, 10, Color.rgb(239, 208, 210))
                 setPadding(dp(context, 16), 0, dp(context, 12), 0)
                 isClickable = true
                 isFocusable = true
@@ -202,7 +202,7 @@ object FloatingFeatures {
         }
 
         card.addView(label(context, "✦             ✧              ✦", 13f,
-            Color.rgb(106, 167, 207)).apply {
+            Color.rgb(223, 94, 103)).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(context, 8), 0, 0)
         }, LinearLayout.LayoutParams(-1, dp(context, 30)))

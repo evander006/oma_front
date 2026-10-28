@@ -29,6 +29,51 @@ class Api(private val context: Context) {
         }
     }
 
+    /** Upload a catalogue photo without blocking the UI thread. */
+    fun visualSearch(
+        bytes: ByteArray,
+        mimeType: String,
+        callback: (Result<String>) -> Unit
+    ) {
+        executor.execute {
+            val result = runCatching { uploadVisualSearch(bytes, mimeType) }
+            android.os.Handler(context.mainLooper).post { callback(result) }
+        }
+    }
+
+    private fun uploadVisualSearch(bytes: ByteArray, mimeType: String): String {
+        require(bytes.isNotEmpty()) { "Файл пуст" }
+        require(bytes.size <= 8 * 1024 * 1024) { "Фото больше 8 МБ" }
+        val safeMime = mimeType.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") }
+            ?: "image/jpeg"
+        val host = baseUrl
+        require(host.startsWith("https://")) { "Для демо-сервера нужен HTTPS URL" }
+        val boundary = "OMAVisualSearch${System.nanoTime()}"
+        val conn = URL("$host/api/v1/visual-search").openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 60_000
+            conn.doOutput = true
+            conn.setRequestProperty("Accept", "application/json")
+            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+            conn.outputStream.buffered().use { stream ->
+                stream.write("--$boundary\r\n".toByteArray())
+                stream.write("Content-Disposition: form-data; name=\"file\"; filename=\"photo\"\r\n".toByteArray())
+                stream.write("Content-Type: $safeMime\r\n\r\n".toByteArray())
+                stream.write(bytes)
+                stream.write("\r\n--$boundary--\r\n".toByteArray())
+            }
+            val status = conn.responseCode
+            val text = (if (status in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            check(status in 200..299) { "HTTP $status — ${text.take(300)}" }
+            return text
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     private fun exchange(method: String, path: String, body: JSONObject?, contractorId: Int?): String {
         val host = baseUrl
         require(host.startsWith("https://")) { "Для демо-сервера нужен HTTPS URL" }

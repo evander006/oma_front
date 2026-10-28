@@ -28,6 +28,7 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.zip.ZipInputStream
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
@@ -61,6 +62,7 @@ class Storefront(
 
     private val prefs: SharedPreferences =
         activity.getSharedPreferences("oma_store_offline", Activity.MODE_PRIVATE)
+    private val api = Api(activity)
     private var products: List<Item> = demoProducts()
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
@@ -73,6 +75,8 @@ class Storefront(
     private var photoBusy = false
     private var photoError = ""
     private var photoMatches: List<Pair<Item, Int>> = emptyList()
+    private var photoAnalysisNote = ""
+    private var photoDetected = ""
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
         "Инструмент", "Мебель", "Бытовая техника", "Товары для дома",
@@ -668,29 +672,78 @@ class Storefront(
 
     fun analyzePhoto(uri:Uri){
         photoUri=uri;photoBusy=true;photoError="";photoMatches=emptyList()
+        photoAnalysisNote="";photoDetected=""
         navigate("shop:photo")
+        pool.execute{
+            val upload=runCatching{
+                activity.contentResolver.openInputStream(uri)?.use{it.readBytes()}
+                    ?: error("Не удалось открыть фотографию")
+            }
+            upload.fold({bytes->
+                val mime=activity.contentResolver.getType(uri)?:"image/jpeg"
+                api.visualSearch(bytes,mime){remote->
+                    remote.fold({raw->
+                        val parsed=runCatching{parseRemoteMatches(raw)}.getOrDefault(emptyList())
+                        if(parsed.isNotEmpty()){
+                            photoMatches=parsed;photoBusy=false;photoError=""
+                            navigate("shop:photo")
+                        }else analyzePhotoLocally(uri,"ИИ-сервис не сопоставил товары из локального каталога")
+                    },{
+                        analyzePhotoLocally(uri,"ИИ-сервис временно недоступен")
+                    })
+                }
+            },{
+                ui.post{
+                    photoBusy=false;photoError=it.message?:"Ошибка анализа";navigate("shop:photo")
+                }
+            })
+        }
+    }
+
+    private fun parseRemoteMatches(raw:String):List<Pair<Item,Int>>{
+        val response=JSONObject(raw)
+        val detected=response.optJSONArray("detected_objects")?:JSONArray()
+        photoDetected=(0 until detected.length()).map{detected.optString(it)}
+            .filter{it.isNotBlank()}.joinToString(", ")
+        photoAnalysisNote=response.optString("note","Поиск выполнен нейросетью и визуальным ранжированием")
+        val matches=response.optJSONArray("matches")?:JSONArray()
+        return (0 until matches.length()).mapNotNull{index->
+            val match=matches.optJSONObject(index)?:return@mapNotNull null
+            val sku=match.optString("sku")
+            val name=match.optString("name")
+            val item=products.firstOrNull{it.id.equals(sku,true)}
+                ?:products.firstOrNull{it.title.equals(name,true)}
+                ?:return@mapNotNull null
+            val confidence=match.optDouble("match_score",
+                match.optDouble("visual_color_similarity",0.0))
+            item to (confidence*100.0).roundToInt().coerceIn(1,99)
+        }.distinctBy{it.first.id}.take(20)
+    }
+
+    private fun analyzePhotoLocally(uri:Uri,reason:String){
         pool.execute{
             val result=runCatching{
                 val source=activity.contentResolver.openInputStream(uri)?.use{BitmapFactory.decodeStream(it)}
-                    ?: error("Не удалось открыть фотографию")
+                    ?:error("Не удалось открыть фотографию")
                 val target=descriptor(source)
-                val candidates=products.asSequence().filter{it.image.isNotBlank()}.take(240).toList()
-                val scored=candidates.mapNotNull{item->
-                    runCatching{
-                        val bitmap=loadProductBitmap(item)?:return@runCatching null
-                        val candidate=descriptor(bitmap)
-                        val distance=candidate.indices.sumOf{i->
-                            val d=(candidate[i]-target[i]).toDouble();d*d
-                        }.let{sqrt(it)}
-                        item to (100.0/(1.0+distance*2.8)).toInt().coerceIn(1,99)
-                    }.getOrNull()
-                }.filterNotNull().sortedByDescending{it.second}.take(20)
+                val candidates=products.asSequence().filter{it.image.isNotBlank()}.take(320).toList()
+                val scored=candidates.mapNotNull{item->runCatching{
+                    val bitmap=loadProductBitmap(item)?:return@runCatching null
+                    val candidate=descriptor(bitmap)
+                    val distance=candidate.indices.sumOf{i->
+                        val d=(candidate[i]-target[i]).toDouble();d*d
+                    }.let{sqrt(it)}
+                    item to (100.0/(1.0+distance*2.8)).toInt().coerceIn(1,99)
+                }.getOrNull()}.filterNotNull().sortedByDescending{it.second}.take(20)
                 if(scored.isEmpty())error("Не удалось загрузить изображения товаров")
                 scored
             }
             ui.post{
                 photoBusy=false
-                result.fold({photoMatches=it},{photoError=it.message?:"Ошибка анализа"})
+                result.fold({
+                    photoMatches=it
+                    photoAnalysisNote="$reason. Показано локальное визуальное сходство."
+                },{photoError=it.message?:"Ошибка анализа"})
                 navigate("shop:photo")
             }
         }
@@ -711,7 +764,9 @@ class Storefront(
             }
             else->{
                 sectionTitle(body,"Похожие товары · ${photoMatches.size}")
-                body.addView(text("Процент показывает визуальную близость изображения, а не гарантию совпадения артикула.",12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
+                if(photoDetected.isNotBlank())body.addView(text("Распознано: $photoDetected",13f,true,ink).apply{setPadding(dp(16),0,dp(16),dp(6))})
+                val explanation=photoAnalysisNote.ifBlank{"Процент показывает визуальную и смысловую близость, а не гарантию совпадения артикула."}
+                body.addView(text(explanation,12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
                 photoMatches.forEach{(item,score)->
                     val card=horizontal().apply{setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.WHITE);setOnClickListener{openProduct(item.id)}}
                     card.addView(photo(item,84),LinearLayout.LayoutParams(dp(84),dp(84)))
