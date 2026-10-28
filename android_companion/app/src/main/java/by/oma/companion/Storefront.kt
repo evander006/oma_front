@@ -1383,113 +1383,154 @@ class Storefront(
         return result
     }
 
-    /** Import the user's own ZIP only after explicit Android picker selection. */
+    /**
+     * Stream the selected ZIP to private storage; validate schema/row count
+     * without ever materializing 134k products. Swap the database only after
+     * validation, keeping the old catalog if the new import fails.
+     */
     fun importCatalog(uri: Uri) {
-        Toast.makeText(activity,"Загружаем каталог, дождитесь завершения",Toast.LENGTH_LONG).show()
-        pool.execute {
-            val temporary=File(activity.filesDir,"oma_catalog_tmp")
-            val target=File(activity.filesDir,"oma_catalog")
-            val outcome=runCatching {
+        if (catalogLoading) {
+            Toast.makeText(activity, "Каталог уже обрабатывается", Toast.LENGTH_LONG).show()
+            return
+        }
+        catalogLoading = true
+        catalogNotice = "Начинаем импорт ZIP…"
+        catalogStatusView?.text = catalogNotice
+        Toast.makeText(activity, "Импорт выполняется в фоне. Откройте «Каталог» для прогресса.", Toast.LENGTH_LONG).show()
+
+        catalogPool.execute {
+            val temporary = File(activity.filesDir, "oma_catalog_tmp")
+            val target = File(activity.filesDir, "oma_catalog")
+            val backup = File(activity.filesDir, "oma_catalog_backup")
+            fun progress(message: String) {
+                ui.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        catalogNotice = message
+                        catalogStatusView?.text = message
+                    }
+                }
+            }
+
+            val outcome = runCatching {
                 temporary.deleteRecursively()
-                temporary.mkdirs()
-                var count=0
-                var totalBytes=0L
-                var seenDb=false
+                require(temporary.mkdirs()) { "Не удалось создать временную папку" }
+                var count = 0
+                var totalBytes = 0L
+                var nextUpdate = 8L * 1024 * 1024
+                var seenDb = false
+
                 activity.contentResolver.openInputStream(uri).use { input ->
-                    requireNotNull(input) {"Невозможно открыть ZIP"}
+                    requireNotNull(input) { "Не удалось открыть ZIP. Выберите ZIP-файл из «Загрузок»" }
                     ZipInputStream(input.buffered()).use { zip ->
-                        while(true) {
-                            val entry=zip.nextEntry?:break
+                        while (true) {
+                            val entry = zip.nextEntry ?: break
                             count++
-                            require(count<=15000) {"Слишком много файлов в архиве"}
-                            val name=entry.name.replace('\\','/')
-                            val path=when {
-                                name=="output/catalog.db" -> "catalog.db"
+                            require(count <= 15000) { "Слишком много файлов в архиве" }
+                            val name = entry.name.replace('\\', '/')
+                            val path = when {
+                                name == "output/catalog.db" || name == "catalog.db" -> "catalog.db"
                                 name.startsWith("output/images/") && !entry.isDirectory ->
                                     name.removePrefix("output/")
+                                name.startsWith("images/") && !entry.isDirectory -> name
                                 else -> null
                             }
-                            if(path!=null) {
-                                val out=File(temporary,path)
-                                require(out.canonicalPath.startsWith(temporary.canonicalPath+
-                                    File.separator)) {"Некорректный путь в ZIP"}
-                                out.parentFile?.mkdirs()
-                                FileOutputStream(out).use { os ->
-                                    val buffer=ByteArray(32768)
-                                    while(true) {
-                                        val n=zip.read(buffer)
-                                        if(n<0)break
-                                        totalBytes+=n
-                                        require(totalBytes<=150L*1024*1024) {"Архив слишком большой"}
-                                        os.write(buffer,0,n)
+                            if (path != null) {
+                                val output = File(temporary, path)
+                                require(output.canonicalPath.startsWith(
+                                    temporary.canonicalPath + File.separator
+                                )) { "Некорректный путь в ZIP" }
+                                output.parentFile?.mkdirs()
+                                FileOutputStream(output).use { stream ->
+                                    val buffer = ByteArray(32768)
+                                    while (true) {
+                                        val read = zip.read(buffer)
+                                        if (read < 0) break
+                                        totalBytes += read
+                                        require(totalBytes <= 190L * 1024 * 1024) {
+                                            "Распакованный каталог превышает 190 МБ"
+                                        }
+                                        stream.write(buffer, 0, read)
+                                        if (totalBytes >= nextUpdate) {
+                                            nextUpdate += 8L * 1024 * 1024
+                                            progress("Распаковано ${totalBytes / 1024 / 1024} МБ…")
+                                        }
                                     }
                                 }
-                                if(path=="catalog.db")seenDb=true
+                                if (path == "catalog.db") seenDb = true
                             }
                             zip.closeEntry()
                         }
                     }
                 }
-                require(seenDb) {"В архиве нет output/catalog.db"}
-                val parsed=loadDatabase(temporary)
-                require(parsed.isNotEmpty()) {"Каталог пуст"}
-                target.deleteRecursively()
-                require(temporary.renameTo(target)) {"Не удалось сохранить каталог"}
-                val local=loadDatabase(target)
-                local
+
+                require(seenDb) { "В ZIP нет output/catalog.db. Нужен архив каталога ОМА." }
+                progress("Проверяем SQLite и считаем товары…")
+                val db = OmaCatalogDatabase(temporary)
+                val total = db.validate()
+                require(total > 0) { "Каталог не содержит товаров" }
+                val categories = db.categories()
+
+                // Replace only after the imported database is verified.
+                backup.deleteRecursively()
+                if (target.exists()) require(target.renameTo(backup)) {
+                    "Не удалось подготовить замену предыдущего каталога"
+                }
+                if (!temporary.renameTo(target)) {
+                    if (backup.exists()) backup.renameTo(target)
+                    error("Не удалось сохранить каталог: проверьте свободную память телефона")
+                }
+                backup.deleteRecursively()
+                total to categories
             }
+
             ui.post {
-                outcome.fold({ records ->
-                    products=records
-                    Toast.makeText(activity,"Загружено товаров: "+records.size,Toast.LENGTH_LONG).show()
-                    changeTab("Каталог")
-                },{ex ->
+                catalogLoading = false
+                outcome.fold({ (total, categories) ->
+                    catalogDb = OmaCatalogDatabase(target)
+                    catalogCount = total
+                    categoryMap = categories
+                    products = emptyList()
+                    productCache.clear()
+                    pageKey = ""
+                    pageResult = null
+                    pageOffset = 0
+                    catalogNotice = "Каталог успешно загружен: $total товаров"
+                    Toast.makeText(activity, catalogNotice, Toast.LENGTH_LONG).show()
+                    if (!activity.isFinishing && !activity.isDestroyed) changeTab("Каталог")
+                }, { error ->
                     temporary.deleteRecursively()
-                    Toast.makeText(activity,"Ошибка импорта: "+(ex.message?:"Неверный архив"),Toast.LENGTH_LONG).show()
+                    catalogNotice = "Ошибка импорта: ${error.message ?: "Неверный архив"}"
+                    catalogStatusView?.text = catalogNotice
+                    Toast.makeText(activity, catalogNotice, Toast.LENGTH_LONG).show()
                 })
             }
         }
     }
-    private fun loadDatabase(dir:File):List<Item> {
-        val file=File(dir,"catalog.db")
-        if(!file.exists())return emptyList()
-        val db=SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY)
-        return try {
-            val list=ArrayList<Item>()
-            db.rawQuery(
-                "SELECT sku,name,category_path,price,old_price,unit,image_files,image_urls,brand "+
-                "FROM products WHERE sku IS NOT NULL AND name IS NOT NULL",null
-            ).use { cursor ->
-                while(cursor.moveToNext()) {
-                    val id=cursor.getString(0)?:continue
-                    val name=cursor.getString(1)?:continue
-                    val cats=(cursor.getString(2)?:"").split(" / ")
-                    val images=JSONArray(cursor.getString(6)?:"[]")
-                    val remote=JSONArray(cursor.getString(7)?:"[]")
-                    val local=images.optString(0,"")
-                    val actual=if(local.isNotBlank())File(dir,local) else null
-                    val image=if(actual!=null && actual.isFile && actual.canonicalPath.startsWith(
-                        dir.canonicalPath+File.separator)) actual.path else remote.optString(0,"")
-                    val p=cursor.getString(3)?.toDoubleOrNull()
-                    val old=cursor.getString(4)?.toDoubleOrNull()
-                    list.add(Item(id,name,cats.firstOrNull().orEmpty(),
-                        cats.getOrElse(1){""},p,old,cursor.getString(5)?:"шт",image,
-                        cursor.getString(8)?:""))
-                }
-            }
-            list
-        } finally {db.close()}
-    }
+
+    /** Only metadata is read at startup. Pages are loaded on demand. */
     fun loadExistingCatalog() {
         val directory = File(activity.filesDir, "oma_catalog")
         if (!File(directory, "catalog.db").isFile) return
-        // Large catalogs must never block Android's main thread during app launch.
         catalogLoading = true
-        pool.execute {
-            val saved = runCatching { loadDatabase(directory) }.getOrNull()
+        catalogNotice = "Проверяем сохранённый каталог…"
+        catalogPool.execute {
+            val saved = runCatching {
+                val db = OmaCatalogDatabase(directory)
+                Triple(db, db.validate(), db.categories())
+            }
             ui.post {
-                if (!saved.isNullOrEmpty()) products = saved
                 catalogLoading = false
+                saved.fold({ (db, total, categories) ->
+                    catalogDb = db
+                    catalogCount = total
+                    categoryMap = categories
+                    products = emptyList()
+                    catalogNotice = ""
+                    pageKey = ""
+                    pageResult = null
+                }, { error ->
+                    catalogNotice = "Ошибка сохранённого каталога: ${error.message}"
+                })
                 if (!activity.isFinishing && !activity.isDestroyed) refresh()
             }
         }
