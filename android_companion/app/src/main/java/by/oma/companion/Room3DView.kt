@@ -31,11 +31,21 @@ class Room3DView(context: Context) : GLSurfaceView(context) {
     var roomArea:Double
         get()=scene.roomArea
         set(value){scene.roomArea=value;requestRender()}
-    var roomWidth:Double get()=scene.roomWidth set(value){scene.roomWidth=value;requestRender()}
-    var roomLength:Double get()=scene.roomLength set(value){scene.roomLength=value;requestRender()}
-    var roomHeight:Double get()=scene.roomHeight set(value){scene.roomHeight=value;requestRender()}
-    var doorWall:String get()=scene.doorWall set(value){scene.doorWall=value;requestRender()}
-    var windowWall:String get()=scene.windowWall set(value){scene.windowWall=value;requestRender()}
+    var roomWidth:Double
+        get()=scene.roomWidth
+        set(value){scene.roomWidth=value;requestRender()}
+    var roomLength:Double
+        get()=scene.roomLength
+        set(value){scene.roomLength=value;requestRender()}
+    var roomHeight:Double
+        get()=scene.roomHeight
+        set(value){scene.roomHeight=value;requestRender()}
+    var doorWall:String
+        get()=scene.doorWall
+        set(value){scene.doorWall=value;requestRender()}
+    var windowWall:String
+        get()=scene.windowWall
+        set(value){scene.windowWall=value;requestRender()}
     var products:List<Product>
         get()=scene.products
         set(value){scene.products=value.toList();requestRender()}
