@@ -152,7 +152,7 @@ class UnifiedActivity : Activity() {
         header.addView(label(heading,19.5f,true),LinearLayout.LayoutParams(0,-1,1f))
         root.addView(header,LinearLayout.LayoutParams(-1,dp(58)))
         divider(root)
-        val scroller=ScrollView(this).apply {fillViewport=true;setBackgroundColor(surface)}
+        val scroller=ScrollView(this).apply {isFillViewport=true;setBackgroundColor(surface)}
         body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
         scroller.addView(body,ScrollView.LayoutParams(-1,-2))
         root.addView(scroller,LinearLayout.LayoutParams(-1,0,1f))
