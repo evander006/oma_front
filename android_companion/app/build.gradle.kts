@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0-floating-features"
+        versionCode = 6
+        versionName = "0.6.0-home-passport-pdf"
     }
     buildTypes {
         release { isMinifyEnabled = false }

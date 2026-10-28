@@ -26,7 +26,8 @@ class UnifiedActivity : Activity() {
     private val omaBlue = Color.rgb(0, 101, 174)
     private val selected = Color.rgb(187, 148, 74)
     private lateinit var api: Api
-    private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() }) }
+    private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() }, { openHomeHub() }) }
+    private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
     private var tab = "Профиль"
@@ -69,7 +70,7 @@ class UnifiedActivity : Activity() {
         out.putString("featureOriginScreen", featureOriginScreen)
         super.onSaveInstanceState(out)
     }
-    override fun onDestroy() { web?.destroy(); api.close(); super.onDestroy() }
+    override fun onDestroy() { web?.destroy(); homeHub.closePreview(); api.close(); super.onDestroy() }
     private fun dp(n:Int):Int = Style.dp(this,n)
     private fun signedIn():Boolean = prefs.getBoolean("registered",false)
     private fun notice(s:String) { Toast.makeText(this,s,Toast.LENGTH_LONG).show() }
@@ -95,7 +96,19 @@ class UnifiedActivity : Activity() {
             return
         }
         featurePopupOpen = false
-        go(route)
+        go(when(route) {
+            "passport" -> "home:passport"
+            "3d" -> "home:3d"
+            else -> route
+        })
+    }
+    private fun openHomeHub() {
+        if (!signedIn()) {
+            pendingFeatureLogin = true
+            featureOriginScreen = "home:hub"
+            authMode = if (prefs.contains("demo_auth_hash")) "login" else "register"
+            go("auth")
+        } else go("home:hub")
     }
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
@@ -106,6 +119,10 @@ class UnifiedActivity : Activity() {
                 go(featureOriginScreen)
             }
             screen.startsWith("shop:") -> go(shop.back(screen))
+            screen.startsWith("home:") -> {
+                homeHub.closePreview()
+                if (screen == "home:hub") { screen="";render() } else go("home:hub")
+            }
             screen in listOf("3d", "passport", "master", "smart") -> {
                 screen = featureOriginScreen
                 featurePopupOpen = signedIn()
@@ -193,11 +210,13 @@ class UnifiedActivity : Activity() {
         val heading=when(screen) {
             "auth"->"Вход и регистрация";"digital"->"Новые функции"
             "shop:product","shop:category","shop:listing","shop:search","shop:checkout" -> shop.heading(screen)
+            else -> if (screen.startsWith("home:")) homeHub.title(screen) else when(screen) {
             "3d"->"3D-модель дома";"passport"->"Паспорт дома"
             "master"->"Знающий мастер";"masterMode"->"Кабинет мастера"
             "smart"->"Поиск по фото";"account"->"Моя информация"
             "orders"->"История заказов";"settings"->"Настройки"
             "info"->"Информация";else->tab
+            }
         }
         header.addView(label(heading,19.5f,true).apply {
             maxLines = 1
@@ -261,6 +280,10 @@ class UnifiedActivity : Activity() {
 
         if (screen.startsWith("shop:")) {
             shop.render(screen, body)
+            return
+        }
+        if (screen.startsWith("home:")) {
+            homeHub.render(screen, body)
             return
         }
         when(screen) {
@@ -393,7 +416,7 @@ class UnifiedActivity : Activity() {
             if (pendingFeatureLogin) {
                 pendingFeatureLogin = false
                 screen = featureOriginScreen
-                featurePopupOpen = true
+                featurePopupOpen = !featureOriginScreen.startsWith("home:")
                 render()
             } else {
                 tab = "Профиль"
@@ -716,6 +739,12 @@ class UnifiedActivity : Activity() {
         super.onActivityResult(code,result,data)
         if (code == Storefront.PICK_CATALOG) {
             if (result == RESULT_OK && data?.data != null) shop.importCatalog(data.data!!)
+            return
+        }
+        if (code == HomeHub.SAVE_PDF_REQUEST) {
+            if (result == RESULT_OK && data?.data != null) {
+                notice(if (homeHub.savePdf(data.data!!)) "PDF сохранён" else "Не удалось сохранить PDF")
+            }
             return
         }
         if(code!=pickPhoto||result!=RESULT_OK||data?.data==null)return

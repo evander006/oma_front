@@ -38,7 +38,8 @@ class Storefront(
     private val activity: Activity,
     private val navigate: (String) -> Unit,
     private val changeTab: (String) -> Unit,
-    private val refresh: () -> Unit
+    private val refresh: () -> Unit,
+    private val openHomeHub: () -> Unit
 ) {
     companion object {
         const val PICK_CATALOG = 7241
@@ -290,6 +291,10 @@ class Storefront(
         val top = vertical().apply { setBackgroundColor(Color.WHITE) }
         val brandRow = horizontal().apply {setPadding(dp(16), dp(13), dp(16), dp(8))}
         brandRow.addView(text("ОМА", 26f, true, blue), LinearLayout.LayoutParams(0, dp(50), 1f))
+        brandRow.addView(LineIcon(activity,"home",blue).apply {
+            contentDescription="Открыть цифровой дом"
+            setOnClickListener { openHomeHub() }
+        }, LinearLayout.LayoutParams(dp(34),dp(34)).apply {rightMargin=dp(14)})
         brandRow.addView(text("➤  Минск  ❯", 15f, false, Color.BLACK).apply {
             setOnClickListener { Toast.makeText(activity, "Демонстрационный город: Минск", Toast.LENGTH_SHORT).show() }
         })
@@ -653,7 +658,16 @@ class Storefront(
         parameter(body,"Сумма",price(total()))
         body.addView(button("Подтвердить демо-заказ", {
             val record=JSONArray(prefs.getString("demo_orders","[]"))
-            record.put(JSONObject().put("sum",total()).put("date",System.currentTimeMillis()))
+            val purchasedAt=System.currentTimeMillis()
+            val lines=JSONArray()
+            cart().forEach { (id, quantity) ->
+                product(id)?.let { p ->
+                    lines.put(JSONObject().put("sku",p.id).put("title",p.title)
+                        .put("quantity",quantity).put("unit",p.unit).put("price",p.price)
+                        .put("brand",p.brand).put("date",purchasedAt))
+                }
+            }
+            record.put(JSONObject().put("sum",total()).put("date",purchasedAt).put("items",lines))
             prefs.edit().putString("demo_orders",record.toString()).putString("cart","{}").apply()
             Toast.makeText(activity,"Демо-заказ оформлен",Toast.LENGTH_LONG).show()
             changeTab("Профиль")
@@ -667,6 +681,22 @@ class Storefront(
             val row=json.optJSONObject(i)?:continue
             parameter(body,"Демо-заказ №"+(i+1),price(row.optDouble("sum")))
         }
+    }
+
+    /** Snapshots from orders confirmed inside this demo, never from the official OMA account. */
+    fun confirmedPurchases():JSONArray {
+        val result=JSONArray()
+        val orders=runCatching { JSONArray(prefs.getString("demo_orders","[]")) }.getOrDefault(JSONArray())
+        for(i in 0 until orders.length()) {
+            val order=orders.optJSONObject(i)?:continue
+            val items=order.optJSONArray("items")?:continue
+            for(j in 0 until items.length()) items.optJSONObject(j)?.let { item ->
+                if(!item.has("date")) item.put("date",order.optLong("date"))
+                item.put("demo_order",i+1)
+                result.put(item)
+            }
+        }
+        return result
     }
 
     /** Import the user's own ZIP only after explicit Android picker selection. */
