@@ -48,7 +48,8 @@ class Storefront(
     private val refresh: () -> Unit,
     private val openHomeHub: () -> Unit,
     private val pickPhoto: () -> Unit,
-    private val isPhotoSearchVisible: () -> Boolean
+    private val isPhotoSearchVisible: () -> Boolean,
+    private val openStoryFeature: (String) -> Unit
 ) {
     companion object {
         const val PICK_CATALOG = 7241
@@ -444,8 +445,22 @@ class Storefront(
                     setStroke(dp(3), if (index == 0) orange else Color.TRANSPARENT)
                 }
                 setPadding(dp(4), dp(4), dp(4), dp(4))
-                contentDescription = "История ${index + 1}"
-                setOnClickListener { openStory(index) }
+                contentDescription = when (index) {
+                    0 -> "Паспорт дома"
+                    1 -> "3D-модель дома"
+                    2 -> "Поиск по фото"
+                    3 -> "Знающий мастер"
+                    else -> "История ${index + 1}"
+                }
+                setOnClickListener {
+                    when (index) {
+                        0 -> openStoryFeature("home:passport")
+                        1 -> openStoryFeature("home:3d")
+                        2 -> openStoryFeature("photo")
+                        3 -> openStoryFeature("master:hub")
+                        else -> openStory(index)
+                    }
+                }
             }
             ring.addView(roundedImage(res, 8), FrameLayout.LayoutParams(-1, -1))
             promoRow.addView(ring, LinearLayout.LayoutParams(dp(110), dp(136)).apply { rightMargin = dp(6) })
