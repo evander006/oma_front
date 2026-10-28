@@ -337,7 +337,7 @@ class UnifiedActivity : Activity() {
             textSize = 16f
             setTextColor(ink)
             setHintTextColor(Color.rgb(165, 171, 176))
-            isSingleLine = true
+            setSingleLine(true)
             background = border
             setPadding(dp(15), 0, dp(15), 0)
         }
