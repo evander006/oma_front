@@ -19,14 +19,19 @@ import android.widget.TextView
  *
  * The original five store tabs are not replaced. This small, semi-transparent
  * widget stays above their content and gently bobs, with independent star
- * twinkles. A full-screen scrim and pale blue list are only displayed after
+ * twinkles. A full-screen scrim and light blue list are only displayed after
  * a customer explicitly taps the chip and is locally signed in.
  */
 object FloatingFeatures {
     private val blue = Style.BRAND_RED
     private val ink = Style.DARK
-    private val pale = Color.argb(246, 255, 239, 240)
-    private val lighter = Color.argb(248, 255, 250, 250)
+    private val pale = Color.argb(246, 232, 243, 255)
+    private val lighter = Color.argb(248, 246, 250, 255)
+    private val sky = Color.rgb(236, 246, 255)
+    private val skyDeep = Color.rgb(205, 229, 252)
+    private val skyLine = Color.rgb(150, 198, 243)
+    private val sparkA = Color.rgb(46, 150, 240)
+    private val sparkB = Color.rgb(110, 190, 250)
 
     private fun dp(context: Context, n: Int): Int = Style.dp(context, n)
 
@@ -59,13 +64,22 @@ object FloatingFeatures {
         clearanceFromBottomDp: Int = 87,
         open: () -> Unit
     ) {
+        // Outer frame is unclipped so sparkles can poke out; the face clips the shine sweep.
         val chip = FrameLayout(context).apply {
-            background = shape(context, pale, 19, Color.rgb(246, 184, 189))
-            elevation = dp(context, 10).toFloat()
+            clipChildren = false
+            clipToPadding = false
             isClickable = true
             isFocusable = true
             contentDescription = "Новые функции — открыть"
             setOnClickListener { open() }
+        }
+        val face = FrameLayout(context).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(sky, skyDeep)).apply {
+                cornerRadius = dp(context, 19).toFloat()
+                setStroke(dp(context, 1), skyLine)
+            }
+            elevation = dp(context, 10).toFloat()
+            clipToOutline = true
         }
         val main = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -78,54 +92,70 @@ object FloatingFeatures {
         main.addView(label(context, "Откройте цифровой дом", 11.5f, ink).apply {
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(-1, dp(context, 20)))
-        chip.addView(main, FrameLayout.LayoutParams(-1, -1))
+        face.addView(main, FrameLayout.LayoutParams(-1, -1))
+        val shine = View(context).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.TRANSPARENT, Color.argb(150, 255, 255, 255), Color.TRANSPARENT))
+            rotation = 18f
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        face.addView(shine, FrameLayout.LayoutParams(dp(context, 46), dp(context, 120), Gravity.CENTER_VERTICAL))
+        chip.addView(face, FrameLayout.LayoutParams(-1, -1))
 
-        val sparkleLeft = label(context, "✧", 19f, Color.rgb(223, 74, 85)).apply {
-            gravity = Gravity.CENTER
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        fun sparkle(glyph: String, size: Float, color: Int, w: Int, gravity: Int, side: Int, top: Int) =
+            label(context, glyph, size, color).apply {
+                this.gravity = Gravity.CENTER
+                elevation = dp(context, 11).toFloat()
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                chip.addView(this, FrameLayout.LayoutParams(dp(context, w), dp(context, w), gravity).apply {
+                    topMargin = dp(context, top)
+                    if ((gravity and Gravity.RIGHT) == Gravity.RIGHT) rightMargin = dp(context, side) else leftMargin = dp(context, side)
+                })
+            }
+        val sparkleLeft = sparkle("✧", 19f, sparkA, 24, Gravity.TOP or Gravity.LEFT, -3, -12)
+        val sparkleRight = sparkle("✦", 13f, sparkB, 21, Gravity.TOP or Gravity.RIGHT, -4, -10)
+        val sparkleBottom = sparkle("✦", 11f, sparkA, 18, Gravity.BOTTOM or Gravity.RIGHT, 22, 0).apply {
+            (layoutParams as FrameLayout.LayoutParams).bottomMargin = dp(context, -7)
         }
-        val sparkleRight = label(context, "✦", 13f, Color.rgb(232, 104, 113)).apply {
-            gravity = Gravity.CENTER
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        chip.addView(sparkleLeft, FrameLayout.LayoutParams(
-            dp(context, 24), dp(context, 24), Gravity.TOP or Gravity.LEFT
-        ).apply { leftMargin = dp(context, -3); topMargin = dp(context, -12) })
-        chip.addView(sparkleRight, FrameLayout.LayoutParams(
-            dp(context, 21), dp(context, 21), Gravity.TOP or Gravity.RIGHT
-        ).apply { rightMargin = dp(context, -4); topMargin = dp(context, -10) })
 
         parent.addView(chip, FrameLayout.LayoutParams(
             dp(context, 203), dp(context, 74), Gravity.RIGHT or Gravity.BOTTOM
         ).apply { rightMargin = dp(context, 13); bottomMargin = dp(context, clearanceFromBottomDp) })
 
         // Animate only the small in-app chip, never the whole store screen.
-        val bob = ObjectAnimator.ofFloat(
-            chip, View.TRANSLATION_Y, 0f, -dp(context, 9).toFloat(), 0f
+        val animators = mutableListOf<android.animation.Animator>()
+        animators += ObjectAnimator.ofFloat(
+            chip, View.TRANSLATION_Y, 0f, -dp(context, 10).toFloat(), 0f
         ).apply {
-            duration = 2800L
+            duration = 2400L
             repeatCount = ValueAnimator.INFINITE
             interpolator = AccelerateDecelerateInterpolator()
         }
-        val twinkle1 = ObjectAnimator.ofFloat(sparkleLeft, View.ALPHA, .25f, 1f, .25f).apply {
-            duration = 1650L
-            repeatCount = ValueAnimator.INFINITE
+        listOf(Triple(sparkleLeft, 1650L, 0L), Triple(sparkleRight, 2270L, 400L),
+            Triple(sparkleBottom, 1900L, 900L)).forEach { (star, period, delay) ->
+            animators += ObjectAnimator.ofPropertyValuesHolder(star,
+                android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, .2f, 1f, .2f),
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, .6f, 1.25f, .6f),
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, .6f, 1.25f, .6f),
+                android.animation.PropertyValuesHolder.ofFloat(View.ROTATION, 0f, 45f, 90f)
+            ).apply {
+                duration = period
+                startDelay = delay
+                repeatCount = ValueAnimator.INFINITE
+            }
         }
-        val twinkle2 = ObjectAnimator.ofFloat(sparkleRight, View.ALPHA, 1f, .28f, 1f).apply {
-            duration = 2270L
+        // Glint sweeps across the chip every ~3s.
+        animators += ObjectAnimator.ofFloat(shine, View.TRANSLATION_X,
+            -dp(context, 70).toFloat(), dp(context, 250).toFloat()).apply {
+            duration = 3200L
             repeatCount = ValueAnimator.INFINITE
+            interpolator = android.view.animation.PathInterpolator(.6f, 0f, .4f, 1f)
         }
         chip.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(view: View) = Unit
-            override fun onViewDetachedFromWindow(view: View) {
-                bob.cancel()
-                twinkle1.cancel()
-                twinkle2.cancel()
-            }
+            override fun onViewDetachedFromWindow(view: View) { animators.forEach { it.cancel() } }
         })
-        bob.start()
-        twinkle1.start()
-        twinkle2.start()
+        animators.forEach { it.start() }
     }
 
     /**
@@ -145,7 +175,7 @@ object FloatingFeatures {
         }
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = shape(context, pale, 22, Color.rgb(244, 174, 179))
+            background = shape(context, pale, 22, skyLine)
             elevation = dp(context, 16).toFloat()
             setPadding(dp(context, 18), dp(context, 15), dp(context, 18), dp(context, 18))
             isClickable = true
@@ -156,7 +186,7 @@ object FloatingFeatures {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        top.addView(label(context, "✦", 23f, Color.rgb(223, 74, 85)),
+        top.addView(label(context, "✦", 23f, sparkA),
             LinearLayout.LayoutParams(dp(context, 30), dp(context, 42)))
         top.addView(label(context, "Новые функции", 21f, blue, true),
             LinearLayout.LayoutParams(0, dp(context, 47), 1f))
@@ -184,7 +214,7 @@ object FloatingFeatures {
             val row = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                background = shape(context, lighter, 10, Color.rgb(239, 208, 210))
+                background = shape(context, lighter, 10, Color.rgb(204, 226, 248))
                 setPadding(dp(context, 16), 0, dp(context, 12), 0)
                 isClickable = true
                 isFocusable = true
@@ -202,7 +232,7 @@ object FloatingFeatures {
         }
 
         card.addView(label(context, "✦             ✧              ✦", 13f,
-            Color.rgb(223, 94, 103)).apply {
+            sparkB).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(context, 8), 0, 0)
         }, LinearLayout.LayoutParams(-1, dp(context, 30)))
