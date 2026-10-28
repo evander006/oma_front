@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.11.0-search-3d-polish"
+        versionCode = 12
+        versionName = "0.12.0-photo-pdf-fix"
     }
     buildTypes {
         release { isMinifyEnabled = false }
