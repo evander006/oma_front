@@ -60,6 +60,7 @@ class Storefront(
         private val soft = Color.rgb(249, 249, 249)
         private val line = Color.rgb(229, 231, 232)
         private val pool = Executors.newFixedThreadPool(4)
+        private val catalogPool = Executors.newSingleThreadExecutor()
         private val ui = Handler(Looper.getMainLooper())
         private val imageCache = object : android.util.LruCache<String, Bitmap>(24 * 1024) {
             override fun sizeOf(key: String, value: Bitmap) = value.byteCount / 1024
@@ -69,8 +70,22 @@ class Storefront(
     private val prefs: SharedPreferences =
         activity.getSharedPreferences("oma_store_offline", Activity.MODE_PRIVATE)
     private val api = Api(activity)
+    // Only visible products are materialized. The complete imported catalog stays in SQLite.
     private var products: List<Item> = demoProducts()
+    @Volatile private var catalogDb: OmaCatalogDatabase? = null
+    private var catalogCount = 0
     private var catalogLoading = false
+    private var catalogNotice = ""
+    private var categoryMap: Map<String, List<String>> = emptyMap()
+    private var catalogStatusView: TextView? = null
+    private var pageOffset = 0
+    private var pageKey = ""
+    private var pageResult: OmaCatalogDatabase.Page? = null
+    private var pageLoading = false
+    private var pageError = ""
+    private val productCache = LinkedHashMap<String, Item>()
+    private val pendingSkuLoads = mutableSetOf<String>()
+    private val missingSkuIds = mutableSetOf<String>()
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
     private var currentProduct = ""
@@ -169,7 +184,103 @@ class Storefront(
         else NumberFormat.getNumberInstance(Locale("ru", "RU")).apply {
             minimumFractionDigits = 2;maximumFractionDigits = 2
         }.format(p) + " р."
-    private fun product(id: String): Item? = products.firstOrNull { it.id == id }
+    private fun product(id: String): Item? =
+        productCache[id] ?: products.firstOrNull { it.id == id }
+
+    private fun rememberProducts(items: List<Item>) {
+        for (item in items) productCache[item.id] = item
+        while (productCache.size > 350) {
+            productCache.remove(productCache.keys.first())
+        }
+    }
+
+    private fun loadMissingIds(ids: Collection<String>) {
+        val database = catalogDb ?: return
+        val missing = ids.filter { product(it) == null && it !in missingSkuIds && pendingSkuLoads.add(it) }
+        if (missing.isEmpty()) return
+        catalogPool.execute {
+            val found = missing.mapNotNull { sku ->
+                runCatching { database.bySku(sku) }.getOrNull()
+            }
+            ui.post {
+                pendingSkuLoads.removeAll(missing.toSet())
+                if (database === catalogDb) {
+                    missingSkuIds.addAll(missing - found.map { it.id }.toSet())
+                    rememberProducts(found)
+                    if (!activity.isFinishing && !activity.isDestroyed) refresh()
+                }
+            }
+        }
+    }
+
+    private fun requestPage(
+        key: String,
+        category: String = "",
+        subcategory: String = "",
+        search: String = "",
+        sort: String = "",
+        limit: Int = 20,
+        offset: Int = 0
+    ): OmaCatalogDatabase.Page? {
+        val db = catalogDb ?: return null
+        if (pageKey != key) {
+            pageKey = key
+            pageResult = null
+            pageLoading = true
+            pageError = ""
+            catalogPool.execute {
+                val result = runCatching {
+                    db.page(category, subcategory, search, sort, limit, offset)
+                }
+                ui.post {
+                    if (pageKey != key || db !== catalogDb) return@post
+                    pageLoading = false
+                    result.fold(
+                        { page ->
+                            pageResult = page
+                            rememberProducts(page.records)
+                        },
+                        { error -> pageError = error.message ?: "Ошибка чтения каталога" }
+                    )
+                    if (!activity.isFinishing && !activity.isDestroyed) refresh()
+                }
+            }
+        }
+        return pageResult
+    }
+
+    private fun renderPageState(body: LinearLayout) {
+        body.addView(text(
+            if (pageLoading) "Загружаем 20 товаров из базы…" else
+                pageError.ifBlank { "По вашему запросу ничего не найдено" },
+            14f, false, Color.GRAY
+        ).apply { setPadding(dp(16), dp(20), dp(16), dp(24)) })
+        if (pageLoading) body.addView(ProgressBar(activity).apply { isIndeterminate = true })
+    }
+
+    private fun pageNavigation(body: LinearLayout, page: OmaCatalogDatabase.Page, redraw: String) {
+        body.addView(text(
+            "Показано ${if (page.total == 0) 0 else pageOffset + 1}–" +
+                "${(pageOffset + page.records.size).coerceAtMost(page.total)} из ${page.total}",
+            13f, false, Color.GRAY
+        ).apply { setPadding(dp(18), dp(15), dp(16), dp(12)) })
+        val row = horizontal()
+        if (pageOffset > 0) {
+            row.addView(outlineButton("← Назад") {
+                pageOffset = (pageOffset - 20).coerceAtLeast(0)
+                navigate(redraw)
+            }, LinearLayout.LayoutParams(0, dp(46), 1f).apply { rightMargin = dp(8) })
+        }
+        if (pageOffset + page.records.size < page.total) {
+            row.addView(button("Следующие 20 товаров →", {
+                pageOffset += 20
+                navigate(redraw)
+            }), LinearLayout.LayoutParams(0, dp(46), 1f))
+        }
+        if (row.childCount > 0) body.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(24)
+        })
+    }
 
     private fun cart(): MutableMap<String, Int> {
         val map = linkedMapOf<String, Int>()
@@ -189,7 +300,10 @@ class Storefront(
         refresh()
     }
     fun cartCount() = cart().values.sum()
-    fun total() = cart().entries.sumOf { (id, n) -> (product(id)?.price ?: 0.0) * n }
+    fun total(): Double {
+        loadMissingIds(cart().keys)
+        return cart().entries.sumOf { (id, n) -> (product(id)?.price ?: 0.0) * n }
+    }
     private fun addCart(id: String, delta: Int) {
         val map = cart()
         val count = (map[id] ?: 0) + delta
@@ -262,17 +376,20 @@ class Storefront(
         selectedCategory = cat
         selectedSubcategory = ""
         pageSize = 20
+        pageOffset = 0
         navigate("shop:category")
     }
     private fun openListing(sub: String) {
         selectedSubcategory = sub
         pageSize = 20
+        pageOffset = 0
         navigate("shop:listing")
     }
     private fun openProduct(id: String) {
         currentProduct = id
         showParameters = false
         remember(id)
+        if (catalogDb != null && product(id) == null) loadMissingIds(listOf(id))
         navigate("shop:product")
     }
 
@@ -333,6 +450,7 @@ class Storefront(
         input.setOnEditorActionListener { _, _, _ ->
             searchQuery = input.text.toString().trim()
             pageSize = 20
+            pageOffset = 0
             navigate("shop:search")
             true
         }
@@ -480,14 +598,25 @@ class Storefront(
             })
         }
         sectionTitle(body, "Популярные товары")
-        productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
+        if (catalogDb != null) {
+            val page = requestPage("home:popular", limit = 12)
+            if (page == null) renderPageState(body)
+            else productGrid(body, page.records, buttons = false)
+        } else productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
     }
     fun catalog(body: LinearLayout) {
         searchBar(body)
-        tileGrid(body, rootCategories) { openCategory(it) }
-        val catalogMessage = if (catalogLoading) "Загружаем сохранённый каталог…" else "В каталоге: ${products.size} товаров"
-        body.addView(text(catalogMessage, 13f, false, Color.GRAY).apply {
-            setPadding(dp(18), dp(8), dp(15), dp(8))
+        tileGrid(body, if (catalogDb != null && categoryMap.isNotEmpty())
+            categoryMap.keys.toList() else rootCategories) { openCategory(it) }
+        val catalogMessage = when {
+            catalogLoading -> catalogNotice.ifBlank { "Подготовка каталога…" }
+            catalogDb != null -> "В каталоге ОМА: ${catalogCount} товаров (показываем по 20)"
+            catalogNotice.isNotBlank() -> catalogNotice
+            else -> "Демо-каталог: ${products.size} товаров"
+        }
+        catalogStatusView = text(catalogMessage, 14f, false, if (catalogNotice.startsWith("Ошибка")) red else Color.GRAY)
+        body.addView(catalogStatusView, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin=dp(18);rightMargin=dp(15);topMargin=dp(8);bottomMargin=dp(12)
         })
         body.addView(outlineButton("Загрузить каталог из output.zip", {
             activity.startActivityForResult(
@@ -538,6 +667,27 @@ class Storefront(
     }
     private fun categoryScreen(body: LinearLayout) {
         searchBar(body)
+        if (catalogDb != null) {
+            val subcats = categoryMap[selectedCategory].orEmpty()
+            if (subcats.isNotEmpty()) tileGrid(body, subcats) { openListing(it) }
+            sectionTitle(body, "Товары категории")
+            val page = requestPage("category:$selectedCategory",
+                category = selectedCategory, limit = 8)
+            if (page == null) renderPageState(body)
+            else {
+                productGrid(body, page.records)
+                if (page.total > 8) {
+                    body.addView(outlineButton("Посмотреть все ${page.total} товаров", {
+                        selectedSubcategory = ""
+                        pageOffset = 0
+                        navigate("shop:listing")
+                    }), LinearLayout.LayoutParams(-1, dp(46)).apply {
+                        leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(20)
+                    })
+                }
+            }
+            return
+        }
         val subcats = products.filter { it.category == selectedCategory }
             .map { it.subcategory }.filter { it.isNotBlank() }.distinct()
         if (subcats.isNotEmpty()) {
@@ -582,11 +732,24 @@ class Storefront(
         menu.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(dp(1), dp(52)))
         menu.addView(half("sort", sorting) {
             sorting = sortOptions[(sortOptions.indexOf(sorting) + 1) % sortOptions.size]
+            pageOffset = 0
             navigate("shop:listing")
         },LinearLayout.LayoutParams(0, dp(52), 1f))
         body.addView(menu)
         body.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(-1, dp(1)))
         space(body, 14)
+        if (catalogDb != null) {
+            val page = requestPage("listing:$selectedCategory:$selectedSubcategory:$sorting:$pageOffset",
+                category = selectedCategory, subcategory = selectedSubcategory,
+                sort = sorting, offset = pageOffset)
+            if (page == null) renderPageState(body)
+            else {
+                if (page.records.isEmpty()) renderPageState(body)
+                else productGrid(body, page.records)
+                pageNavigation(body, page, "shop:listing")
+            }
+            return
+        }
         val items = filtered()
         if (items.isEmpty()) empty(body, "В загруженном каталоге пока нет товаров") {changeTab("Каталог")}
         else {
@@ -748,6 +911,7 @@ class Storefront(
         space(body,48)
     }
     fun cartScreen(body:LinearLayout) {
+        loadMissingIds(cart().keys)
         val items=cart().entries.mapNotNull { (id,n)->product(id)?.let { it to n } }
         if(items.isEmpty()) {
             empty(body,"В вашей корзине пусто") {changeTab("Каталог")}
@@ -819,6 +983,7 @@ class Storefront(
         })
     }
     fun favoritesScreen(body:LinearLayout){
+        loadMissingIds(favorites())
         val items=favorites().mapNotNull {product(it)}
         if (items.isEmpty()) {
             empty(body,"У вас нет избранных товаров") {changeTab("Каталог")}
@@ -827,6 +992,21 @@ class Storefront(
     private fun searchScreen(body:LinearLayout){
         searchBar(body)
         val q=searchQuery.lowercase(Locale.ROOT).trim()
+        if (catalogDb != null) {
+            if (q.isBlank()) {
+                sectionTitle(body, "Введите название товара")
+                return
+            }
+            val page = requestPage("search:$q:$pageOffset", search = q, offset = pageOffset)
+            sectionTitle(body, if (page == null) "Ищем товары…" else "Найдено: ${page.total}")
+            if (page == null) renderPageState(body)
+            else {
+                if (page.records.isEmpty()) renderPageState(body)
+                else productGrid(body, page.records)
+                pageNavigation(body, page, "shop:search")
+            }
+            return
+        }
         val matches=if(q.isBlank())emptyList() else products.filter {
             it.title.lowercase(Locale.ROOT).contains(q) ||
             it.subcategory.lowercase(Locale.ROOT).contains(q) ||
@@ -964,7 +1144,14 @@ class Storefront(
         val phrases = terms.map { it.trim().lowercase(Locale.ROOT) }
             .filter { it.length >= 3 }.distinct().take(12)
         if (phrases.isEmpty()) return emptyList()
-        val scored = products.asSequence().mapNotNull { item ->
+        val database = catalogDb
+        val candidates = if (database != null) {
+            phrases.flatMap { term ->
+                runCatching { database.page(search = term, limit = 35).records }
+                    .getOrDefault(emptyList())
+            }.distinctBy { it.id }
+        } else products
+        val scored = candidates.asSequence().mapNotNull { item ->
             val title = item.title.lowercase(Locale.ROOT)
             val subcategory = item.subcategory.lowercase(Locale.ROOT)
             val category = item.category.lowercase(Locale.ROOT)
@@ -1205,113 +1392,155 @@ class Storefront(
         return result
     }
 
-    /** Import the user's own ZIP only after explicit Android picker selection. */
+    /**
+     * Stream the selected ZIP to private storage; validate schema/row count
+     * without ever materializing 134k products. Swap the database only after
+     * validation, keeping the old catalog if the new import fails.
+     */
     fun importCatalog(uri: Uri) {
-        Toast.makeText(activity,"Загружаем каталог, дождитесь завершения",Toast.LENGTH_LONG).show()
-        pool.execute {
-            val temporary=File(activity.filesDir,"oma_catalog_tmp")
-            val target=File(activity.filesDir,"oma_catalog")
-            val outcome=runCatching {
+        if (catalogLoading) {
+            Toast.makeText(activity, "Каталог уже обрабатывается", Toast.LENGTH_LONG).show()
+            return
+        }
+        catalogLoading = true
+        catalogNotice = "Начинаем импорт ZIP…"
+        catalogStatusView?.text = catalogNotice
+        Toast.makeText(activity, "Импорт выполняется в фоне. Откройте «Каталог» для прогресса.", Toast.LENGTH_LONG).show()
+
+        catalogPool.execute {
+            val temporary = File(activity.filesDir, "oma_catalog_tmp")
+            val target = File(activity.filesDir, "oma_catalog")
+            val backup = File(activity.filesDir, "oma_catalog_backup")
+            fun progress(message: String) {
+                ui.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        catalogNotice = message
+                        catalogStatusView?.text = message
+                    }
+                }
+            }
+
+            val outcome = runCatching {
                 temporary.deleteRecursively()
-                temporary.mkdirs()
-                var count=0
-                var totalBytes=0L
-                var seenDb=false
+                require(temporary.mkdirs()) { "Не удалось создать временную папку" }
+                var count = 0
+                var totalBytes = 0L
+                var nextUpdate = 8L * 1024 * 1024
+                var seenDb = false
+
                 activity.contentResolver.openInputStream(uri).use { input ->
-                    requireNotNull(input) {"Невозможно открыть ZIP"}
+                    requireNotNull(input) { "Не удалось открыть ZIP. Выберите ZIP-файл из «Загрузок»" }
                     ZipInputStream(input.buffered()).use { zip ->
-                        while(true) {
-                            val entry=zip.nextEntry?:break
+                        while (true) {
+                            val entry = zip.nextEntry ?: break
                             count++
-                            require(count<=15000) {"Слишком много файлов в архиве"}
-                            val name=entry.name.replace('\\','/')
-                            val path=when {
-                                name=="output/catalog.db" -> "catalog.db"
+                            require(count <= 15000) { "Слишком много файлов в архиве" }
+                            val name = entry.name.replace('\\', '/')
+                            val path = when {
+                                name == "output/catalog.db" || name == "catalog.db" -> "catalog.db"
                                 name.startsWith("output/images/") && !entry.isDirectory ->
                                     name.removePrefix("output/")
+                                name.startsWith("images/") && !entry.isDirectory -> name
                                 else -> null
                             }
-                            if(path!=null) {
-                                val out=File(temporary,path)
-                                require(out.canonicalPath.startsWith(temporary.canonicalPath+
-                                    File.separator)) {"Некорректный путь в ZIP"}
-                                out.parentFile?.mkdirs()
-                                FileOutputStream(out).use { os ->
-                                    val buffer=ByteArray(32768)
-                                    while(true) {
-                                        val n=zip.read(buffer)
-                                        if(n<0)break
-                                        totalBytes+=n
-                                        require(totalBytes<=150L*1024*1024) {"Архив слишком большой"}
-                                        os.write(buffer,0,n)
+                            if (path != null) {
+                                val output = File(temporary, path)
+                                require(output.canonicalPath.startsWith(
+                                    temporary.canonicalPath + File.separator
+                                )) { "Некорректный путь в ZIP" }
+                                output.parentFile?.mkdirs()
+                                FileOutputStream(output).use { stream ->
+                                    val buffer = ByteArray(32768)
+                                    while (true) {
+                                        val read = zip.read(buffer)
+                                        if (read < 0) break
+                                        totalBytes += read
+                                        require(totalBytes <= 190L * 1024 * 1024) {
+                                            "Распакованный каталог превышает 190 МБ"
+                                        }
+                                        stream.write(buffer, 0, read)
+                                        if (totalBytes >= nextUpdate) {
+                                            nextUpdate += 8L * 1024 * 1024
+                                            progress("Распаковано ${totalBytes / 1024 / 1024} МБ…")
+                                        }
                                     }
                                 }
-                                if(path=="catalog.db")seenDb=true
+                                if (path == "catalog.db") seenDb = true
                             }
                             zip.closeEntry()
                         }
                     }
                 }
-                require(seenDb) {"В архиве нет output/catalog.db"}
-                val parsed=loadDatabase(temporary)
-                require(parsed.isNotEmpty()) {"Каталог пуст"}
-                target.deleteRecursively()
-                require(temporary.renameTo(target)) {"Не удалось сохранить каталог"}
-                val local=loadDatabase(target)
-                local
+
+                require(seenDb) { "В ZIP нет output/catalog.db. Нужен архив каталога ОМА." }
+                progress("Проверяем SQLite и считаем товары…")
+                val db = OmaCatalogDatabase(temporary)
+                val total = db.validate()
+                require(total > 0) { "Каталог не содержит товаров" }
+                val categories = db.categories()
+
+                // Replace only after the imported database is verified.
+                backup.deleteRecursively()
+                if (target.exists()) require(target.renameTo(backup)) {
+                    "Не удалось подготовить замену предыдущего каталога"
+                }
+                if (!temporary.renameTo(target)) {
+                    if (backup.exists()) backup.renameTo(target)
+                    error("Не удалось сохранить каталог: проверьте свободную память телефона")
+                }
+                backup.deleteRecursively()
+                total to categories
             }
+
             ui.post {
-                outcome.fold({ records ->
-                    products=records
-                    Toast.makeText(activity,"Загружено товаров: "+records.size,Toast.LENGTH_LONG).show()
-                    changeTab("Каталог")
-                },{ex ->
+                catalogLoading = false
+                outcome.fold({ (total, categories) ->
+                    catalogDb = OmaCatalogDatabase(target)
+                    catalogCount = total
+                    categoryMap = categories
+                    products = emptyList()
+                    productCache.clear()
+                    missingSkuIds.clear()
+                    pageKey = ""
+                    pageResult = null
+                    pageOffset = 0
+                    catalogNotice = "Каталог успешно загружен: $total товаров"
+                    Toast.makeText(activity, catalogNotice, Toast.LENGTH_LONG).show()
+                    if (!activity.isFinishing && !activity.isDestroyed) changeTab("Каталог")
+                }, { error ->
                     temporary.deleteRecursively()
-                    Toast.makeText(activity,"Ошибка импорта: "+(ex.message?:"Неверный архив"),Toast.LENGTH_LONG).show()
+                    catalogNotice = "Ошибка импорта: ${error.message ?: "Неверный архив"}"
+                    catalogStatusView?.text = catalogNotice
+                    Toast.makeText(activity, catalogNotice, Toast.LENGTH_LONG).show()
                 })
             }
         }
     }
-    private fun loadDatabase(dir:File):List<Item> {
-        val file=File(dir,"catalog.db")
-        if(!file.exists())return emptyList()
-        val db=SQLiteDatabase.openDatabase(file.path,null,SQLiteDatabase.OPEN_READONLY)
-        return try {
-            val list=ArrayList<Item>()
-            db.rawQuery(
-                "SELECT sku,name,category_path,price,old_price,unit,image_files,image_urls,brand "+
-                "FROM products WHERE sku IS NOT NULL AND name IS NOT NULL",null
-            ).use { cursor ->
-                while(cursor.moveToNext()) {
-                    val id=cursor.getString(0)?:continue
-                    val name=cursor.getString(1)?:continue
-                    val cats=(cursor.getString(2)?:"").split(" / ")
-                    val images=JSONArray(cursor.getString(6)?:"[]")
-                    val remote=JSONArray(cursor.getString(7)?:"[]")
-                    val local=images.optString(0,"")
-                    val actual=if(local.isNotBlank())File(dir,local) else null
-                    val image=if(actual!=null && actual.isFile && actual.canonicalPath.startsWith(
-                        dir.canonicalPath+File.separator)) actual.path else remote.optString(0,"")
-                    val p=cursor.getString(3)?.toDoubleOrNull()
-                    val old=cursor.getString(4)?.toDoubleOrNull()
-                    list.add(Item(id,name,cats.firstOrNull().orEmpty(),
-                        cats.getOrElse(1){""},p,old,cursor.getString(5)?:"шт",image,
-                        cursor.getString(8)?:""))
-                }
-            }
-            list
-        } finally {db.close()}
-    }
+
+    /** Only metadata is read at startup. Pages are loaded on demand. */
     fun loadExistingCatalog() {
         val directory = File(activity.filesDir, "oma_catalog")
         if (!File(directory, "catalog.db").isFile) return
-        // Large catalogs must never block Android's main thread during app launch.
         catalogLoading = true
-        pool.execute {
-            val saved = runCatching { loadDatabase(directory) }.getOrNull()
+        catalogNotice = "Проверяем сохранённый каталог…"
+        catalogPool.execute {
+            val saved = runCatching {
+                val db = OmaCatalogDatabase(directory)
+                Triple(db, db.validate(), db.categories())
+            }
             ui.post {
-                if (!saved.isNullOrEmpty()) products = saved
                 catalogLoading = false
+                saved.fold({ (db, total, categories) ->
+                    catalogDb = db
+                    catalogCount = total
+                    categoryMap = categories
+                    products = emptyList()
+                    catalogNotice = ""
+                    pageKey = ""
+                    pageResult = null
+                }, { error ->
+                    catalogNotice = "Ошибка сохранённого каталога: ${error.message}"
+                })
                 if (!activity.isFinishing && !activity.isDestroyed) refresh()
             }
         }
