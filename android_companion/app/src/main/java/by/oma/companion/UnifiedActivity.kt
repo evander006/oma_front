@@ -233,7 +233,9 @@ class UnifiedActivity : Activity() {
             "info"->"Информация";else->tab
             }
         }
-        header.addView(label(heading,19.5f,true).apply {
+        val boldHeading = screen == "shop:product"
+        header.addView(label(heading,if(boldHeading) 19.5f else 24f,boldHeading).apply {
+            if(!boldHeading) typeface=android.graphics.Typeface.create("sans-serif-light",android.graphics.Typeface.NORMAL)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         },LinearLayout.LayoutParams(0,-1,1f))

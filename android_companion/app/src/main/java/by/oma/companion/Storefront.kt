@@ -113,15 +113,38 @@ class Storefront(
             cornerRadius = dp(radius).toFloat()
             setStroke(dp(1), stroke)
         }
-    private fun sectionTitle(body: LinearLayout, title: String) {
-        body.addView(text(title, 21f, true, ink).apply {
-            setPadding(dp(16), dp(22), dp(12), dp(15))
-        })
+    /** Rounded (in dp) background with a darker pressed state. */
+    private fun pressable(color: Int, radius: Int, stroke: Int = color) =
+        android.graphics.drawable.StateListDrawable().apply {
+            val dark = if (color == Color.WHITE) Style.PRESSED
+                else Color.rgb(Color.red(color) * 4 / 5, Color.green(color) * 4 / 5, Color.blue(color) * 4 / 5)
+            addState(intArrayOf(android.R.attr.state_pressed), rounded(dark, radius, if (stroke == color) dark else stroke))
+            addState(intArrayOf(), rounded(color, radius, stroke))
+        }
+    private fun sectionTitle(body: LinearLayout, title: String, all: (() -> Unit)? = null) {
+        val row = horizontal().apply { setPadding(dp(16), dp(24), dp(16), dp(16)) }
+        row.addView(text(title, 25f, true, Color.rgb(20, 24, 28)), LinearLayout.LayoutParams(0, -2, 1f))
+        if (all != null) {
+            row.addView(text("Все", 18f, false, Color.rgb(20, 24, 28)).apply { setOnClickListener { all() } })
+            row.addView(LineIcon(activity, "chevron", Color.rgb(20, 24, 28)), LinearLayout.LayoutParams(dp(20), dp(20)))
+        }
+        body.addView(row)
+    }
+    private val red = Color.rgb(200, 16, 30)
+    private fun priceText(value: Double?, unit: String, size: Float, color: Int) = TextView(activity).apply {
+        val main = price(value)
+        val tail = if (value == null) "" else " / $unit"
+        val s = android.text.SpannableString(main + tail)
+        s.setSpan(android.text.style.StyleSpan(Typeface.BOLD), 0, main.length, 0)
+        s.setSpan(android.text.style.RelativeSizeSpan(.78f), main.length, s.length, 0)
+        s.setSpan(android.text.style.ForegroundColorSpan(Color.rgb(90, 96, 102)), main.length, s.length, 0)
+        text = s;textSize = size;setTextColor(color)
     }
     private fun button(title: String, onClick: () -> Unit, fill: Int = blue): TextView =
-        text(title, 14f, true, Color.WHITE).apply {
+        text(title, 15f, false, Color.WHITE).apply {
             gravity = Gravity.CENTER
-            background = rounded(fill, 5, fill)
+            background = pressable(fill, 6)
+            stateListAnimator = null
             setOnClickListener { onClick() }
             minHeight = dp(42)
             isClickable = true
@@ -169,8 +192,10 @@ class Storefront(
     private fun favorite(id: String) = favorites().contains(id)
     private fun toggleFavorite(id: String) {
         val set = favorites()
-        if (!set.add(id)) set.remove(id)
+        val added = set.add(id)
+        if (!added) set.remove(id)
         prefs.edit().putStringSet("favorites", set).apply()
+        Toast.makeText(activity, if (added) "Товар добавлен в избранное" else "Товар удален из избранного", Toast.LENGTH_SHORT).show()
         refresh()
     }
     private fun remember(id: String) {
@@ -198,16 +223,20 @@ class Storefront(
     }
     fun checkoutFooter(): View {
         val column = vertical().apply {
-            setPadding(dp(16), dp(12), dp(16), dp(13))
-            setBackgroundColor(ink)
+            setPadding(dp(24), dp(14), dp(24), dp(16))
+            setBackgroundColor(Color.rgb(46, 62, 80))
         }
+        val discount = horizontal()
+        discount.addView(text("Скидка:", 17f, false, Color.WHITE), LinearLayout.LayoutParams(0, dp(30), 1f))
+        discount.addView(text(price(0.0), 17f, false, Color.WHITE))
+        column.addView(discount)
         val info = horizontal()
-        info.addView(text("Итого:", 17f, true, Color.WHITE), LinearLayout.LayoutParams(0, dp(36), 1f))
-        info.addView(text(price(total()), 18f, true, Color.WHITE))
+        info.addView(text("Итого:", 22f, true, Color.WHITE), LinearLayout.LayoutParams(0, dp(38), 1f))
+        info.addView(text(price(total()), 22f, true, Color.WHITE))
         column.addView(info)
-        space(column, 7)
-        column.addView(button("Перейти к оформлению", { navigate("shop:checkout") }),
-            LinearLayout.LayoutParams(-1, dp(49)))
+        space(column, 12)
+        column.addView(button("Перейти к оформлению", { navigate("shop:checkout") }).apply { textSize = 18f },
+            LinearLayout.LayoutParams(-1, dp(58)))
         return column
     }
     fun render(screen: String, body: LinearLayout) {
@@ -270,23 +299,25 @@ class Storefront(
     }
     private fun searchBar(body: LinearLayout, hint: String = "Поиск по названию или категории") {
         val container = horizontal().apply {
-            background = rounded()
-            setPadding(dp(11), dp(3), dp(10), dp(3))
+            background = rounded(Color.WHITE, 12, Color.rgb(236, 237, 238))
+            elevation = dp(2).toFloat()
+            setPadding(dp(16), dp(3), dp(14), dp(3))
         }
-        container.addView(text("⌕", 28f, false, Color.LTGRAY))
+        container.addView(LineIcon(activity, "magnifier", Color.rgb(160, 165, 170)),
+            LinearLayout.LayoutParams(dp(24), dp(24)))
         val input = EditText(activity).apply {
             this.hint = hint
             setSingleLine(true)
-            textSize = 14f
+            textSize = 16f
             setTextColor(ink)
-            setHintTextColor(Color.LTGRAY)
+            setHintTextColor(Color.rgb(170, 174, 178))
             background = null
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setPadding(dp(12), 0, 0, 0)
             setText(searchQuery.takeIf { it.isNotEmpty() } ?: "")
         }
         container.addView(input, LinearLayout.LayoutParams(0, dp(45), 1f))
-        container.addView(LineIcon(activity, "camera", blue).apply {
+        container.addView(LineIcon(activity, "camera", Color.rgb(90, 96, 102)).apply {
             contentDescription="Поиск по фото"
             setOnClickListener { pickPhoto() }
         }, LinearLayout.LayoutParams(dp(30), dp(30)))
@@ -301,91 +332,138 @@ class Storefront(
             (activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
                 .showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
         }
-        body.addView(container, LinearLayout.LayoutParams(-1, dp(58)).apply {
-            leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(15);bottomMargin = dp(14)
-        })
-        body.addView(text("Поиск по фото",13f,true,blue).apply{
-            setPadding(dp(18),0,dp(16),dp(8));setOnClickListener{pickPhoto()}
+        body.addView(container, LinearLayout.LayoutParams(-1, dp(56)).apply {
+            leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(12);bottomMargin = dp(16)
         })
     }
+    private fun roundedImage(res: Int, radius: Int) = ImageView(activity).apply {
+        setImageResource(res)
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        background = rounded(Color.WHITE, radius, Color.TRANSPARENT)
+        clipToOutline = true
+    }
+    private val stories = listOf(R.drawable.oma_story_bonus, R.drawable.oma_story_sale60,
+        R.drawable.oma_story_credit, R.drawable.oma_story_delivery, R.drawable.oma_story_assortment)
+    private val banners = listOf(R.drawable.oma_banner_halva, R.drawable.oma_banner_lamps,
+        R.drawable.oma_banner_makita, R.drawable.oma_banner_appliances, R.drawable.oma_banner_bedding,
+        R.drawable.oma_banner_foam, R.drawable.oma_banner_alpina, R.drawable.oma_banner_lastunit)
+    private fun openStory(start: Int) {
+        val dialog = android.app.Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val frame = FrameLayout(activity).apply { setBackgroundColor(Color.BLACK) }
+        val image = ImageView(activity).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        frame.addView(image, FrameLayout.LayoutParams(-1, -1))
+        val bars = horizontal().apply { setPadding(dp(8), dp(12), dp(8), 0) }
+        val fills = stories.map {
+            val track = FrameLayout(activity).apply { background = rounded(Color.argb(90, 255, 255, 255), 2, Color.TRANSPARENT) }
+            val fill = View(activity).apply { background = rounded(Color.WHITE, 2, Color.TRANSPARENT);pivotX = 0f;scaleX = 0f }
+            track.addView(fill, FrameLayout.LayoutParams(-1, -1))
+            bars.addView(track, LinearLayout.LayoutParams(0, dp(3), 1f).apply { leftMargin = dp(2);rightMargin = dp(2) })
+            fill
+        }
+        frame.addView(bars, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        var index = start
+        fun show(i: Int) {
+            if (i !in stories.indices) { dialog.dismiss();return }
+            index = i
+            fills.forEachIndexed { n, v -> v.animate().cancel();v.scaleX = if (n < i) 1f else 0f }
+            image.setImageResource(stories[i])
+            image.alpha = 0f;image.animate().alpha(1f).setDuration(180).start()
+            fills[i].animate().scaleX(1f).setDuration(5000).setInterpolator(android.view.animation.LinearInterpolator())
+                .withEndAction { if (dialog.isShowing && index == i) show(i + 1) }.start()
+        }
+        frame.setOnClickListener {}
+        frame.setOnTouchListener { v, e ->
+            if (e.action == android.view.MotionEvent.ACTION_UP)
+                show(if (e.x < v.width / 3f) (index - 1).coerceAtLeast(0) else index + 1)
+            true
+        }
+        dialog.setContentView(frame)
+        dialog.show()
+        show(start)
+    }
     fun home(body: LinearLayout) {
-        val top = vertical().apply { setBackgroundColor(Color.WHITE) }
-        val brandRow = horizontal().apply {setPadding(dp(16), dp(13), dp(16), dp(8))}
-        brandRow.addView(text("ОМА", 26f, true, blue), LinearLayout.LayoutParams(0, dp(50), 1f))
-        brandRow.addView(LineIcon(activity,"home",blue).apply {
+        body.setBackgroundColor(Color.WHITE)
+        val top = vertical().apply { setBackgroundColor(Color.WHITE);elevation = dp(3).toFloat() }
+        val brandRow = horizontal().apply {setPadding(dp(16), dp(14), dp(16), dp(6))}
+        brandRow.addView(ImageView(activity).apply {
+            setImageResource(R.drawable.oma_logo);scaleType = ImageView.ScaleType.FIT_START
+            contentDescription = "ОМА"
+        }, LinearLayout.LayoutParams(0, dp(32), 1f))
+        brandRow.addView(LineIcon(activity,"home",ink).apply {
             contentDescription="Открыть цифровой дом"
             setOnClickListener { openHomeHub() }
-        }, LinearLayout.LayoutParams(dp(34),dp(34)).apply {rightMargin=dp(14)})
-        brandRow.addView(text("➤  Минск  ❯", 15f, false, Color.BLACK).apply {
+        }, LinearLayout.LayoutParams(dp(28),dp(28)).apply {rightMargin=dp(16)})
+        val city = horizontal().apply {
             setOnClickListener { Toast.makeText(activity, "Демонстрационный город: Минск", Toast.LENGTH_SHORT).show() }
-        })
+        }
+        city.addView(LineIcon(activity, "location", Color.BLACK), LinearLayout.LayoutParams(dp(18), dp(18)).apply { rightMargin = dp(8) })
+        city.addView(text("Минск", 19f, false, Color.BLACK))
+        city.addView(LineIcon(activity, "chevron", Color.BLACK), LinearLayout.LayoutParams(dp(18), dp(18)))
+        brandRow.addView(city)
         top.addView(brandRow)
         searchBar(top)
         body.addView(top)
-        space(body, 28)
+        space(body, 34)
 
-        val chips = HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false }
-        val chipRow = horizontal().apply {setPadding(dp(11), 0, dp(11), 0)}
-        listOf("Шуруповерты","Смесители","Стройматериалы","Освещение","Краски","Садовая техника").forEach { s ->
-            val v = text(s, 14f, true, Color.DKGRAY).apply {
-                background = rounded(Color.WHITE, 7)
-                gravity = Gravity.CENTER
-                setPadding(dp(14), dp(12), dp(14), dp(12))
+        val chips = HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false;clipToPadding = false }
+        val chipRow = horizontal().apply {setPadding(dp(14), dp(2), dp(14), dp(4))}
+        listOf("Шуруповерты" to "drill","Смесители" to "faucet","Стройматериалы" to "bricks",
+            "Освещение" to "bulb","Краски" to "roller").forEach { (s, glyph) ->
+            val v = horizontal().apply {
+                background = pressable(Color.WHITE, 6, Color.rgb(232, 233, 234))
+                elevation = dp(1).toFloat()
+                setPadding(dp(18), 0, dp(20), 0)
                 setOnClickListener {
                     searchQuery = if (s == "Шуруповерты") "дрель" else s
                     navigate("shop:search")
                 }
             }
-            chipRow.addView(v, LinearLayout.LayoutParams(-2, dp(46)).apply {rightMargin = dp(10)})
+            v.addView(LineIcon(activity, glyph, Color.BLACK), LinearLayout.LayoutParams(dp(24), dp(24)).apply { rightMargin = dp(14) })
+            v.addView(text(s, 17f, true, Color.rgb(30, 30, 30)))
+            chipRow.addView(v, LinearLayout.LayoutParams(-2, dp(52)).apply {rightMargin = dp(12)})
         }
         chips.addView(chipRow)
         body.addView(chips)
-        space(body, 15)
+        space(body, 16)
 
+        // Stories: the first one carries the orange "new" ring, as in the OMA app.
         val promos = HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false }
         val promoRow = horizontal().apply {setPadding(dp(12), 0, dp(12), 0)}
-        listOf("ДОСТАВКА ПО ВСЕЙ БЕЛАРУСИ","БОЛЕЕ 70 000 ТОВАРОВ","БОНУСНАЯ КАРТА ОМА").forEachIndexed { index, s ->
-            val colors = listOf(blue, Color.rgb(55, 45, 142), Color.rgb(18, 104, 159))
-            val card = vertical().apply {
-                background = rounded(colors[index], 10, colors[index])
-                setPadding(dp(10), dp(25), dp(10), dp(10))
+        stories.forEachIndexed { index, res ->
+            val ring = FrameLayout(activity).apply {
+                background = rounded(Color.WHITE, 12, if (index == 0) orange else Color.TRANSPARENT).apply {
+                    setStroke(dp(3), if (index == 0) orange else Color.TRANSPARENT)
+                }
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+                contentDescription = "История ${index + 1}"
+                setOnClickListener { openStory(index) }
             }
-            card.addView(text(s, 14f, true, Color.WHITE).apply {gravity = Gravity.CENTER})
-            space(card, 18)
-            card.addView(text(if (index == 0) "ВСЁ ДЛЯ ДОМА" else "ОМА", 19f, true, Color.WHITE)
-                .apply {gravity = Gravity.CENTER})
-            promoRow.addView(card, LinearLayout.LayoutParams(dp(130), dp(140)).apply {
-                rightMargin = dp(9)
-            })
+            ring.addView(roundedImage(res, 8), FrameLayout.LayoutParams(-1, -1))
+            promoRow.addView(ring, LinearLayout.LayoutParams(dp(110), dp(136)).apply { rightMargin = dp(6) })
         }
         promos.addView(promoRow)
         body.addView(promos)
-        space(body, 15)
+        space(body, 14)
 
-        promoBanner(body, "ХАЛВА", "НА ВСЕ · 12 МЕСЯЦЕВ", Color.rgb(0, 148, 143))
-        promoBanner(body, "ПОРА В ОМА", "АКЦИИ НА ТОВАРЫ ДЛЯ ДОМА", Color.rgb(222, 27, 107))
-        promoBanner(body, "ЭЛЕКТРОИНСТРУМЕНТ", "ДЕМОКАТАЛОГ ОМА", Color.rgb(22, 105, 176))
-        sectionTitle(body, "Популярные товары")
-        productGrid(body, products.filter { it.price != null }.take(12))
-    }
-    private fun promoBanner(body: LinearLayout, heading: String, subtitle: String, color: Int) {
-        val box = vertical().apply {
-            background = rounded(color, 12, color)
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-            setOnClickListener { changeTab("Каталог") }
+        banners.forEach { res ->
+            body.addView(roundedImage(res, 12).apply {
+                scaleType = ImageView.ScaleType.FIT_XY
+                adjustViewBounds = true
+                elevation = dp(2).toFloat()
+                setOnClickListener { changeTab("Каталог") }
+            }, LinearLayout.LayoutParams(-1, -2).apply {
+                leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(8);bottomMargin = dp(16)
+            })
         }
-        box.addView(text(heading, 23f, true, Color.WHITE))
-        space(box, 12)
-        box.addView(text(subtitle, 19f, true, Color.WHITE))
-        body.addView(box, LinearLayout.LayoutParams(-1, dp(140)).apply {
-            leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(8);bottomMargin = dp(10)
-        })
+        sectionTitle(body, "Популярные товары")
+        productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
     }
     fun catalog(body: LinearLayout) {
         searchBar(body)
+        tileGrid(body, rootCategories) { openCategory(it) }
         val selected = products.size
         body.addView(text("В каталоге: " + selected.toString() + " товаров", 13f, false, Color.GRAY).apply {
-            setPadding(dp(18), 0, dp(15), dp(8))
+            setPadding(dp(18), dp(8), dp(15), dp(8))
         })
         body.addView(outlineButton("Загрузить каталог из output.zip", {
             activity.startActivityForResult(
@@ -394,29 +472,29 @@ class Storefront(
                     type = "application/zip"
                 }, PICK_CATALOG)
         }), LinearLayout.LayoutParams(-1, dp(42)).apply {
-            leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(14)
+            leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(24)
         })
-        tileGrid(body, rootCategories) { openCategory(it) }
     }
     private fun tileGrid(body: LinearLayout, list: List<String>, click: (String) -> Unit) {
         list.chunked(2).forEach { pair ->
             val row = horizontal()
             pair.forEach { name ->
                 val item = vertical().apply {
-                    background = rounded(Color.WHITE, 7)
-                    setPadding(dp(12), dp(10), dp(9), dp(8))
+                    background = pressable(Color.WHITE, 8)
+                    elevation = dp(2).toFloat()
+                    setPadding(dp(18), dp(18), dp(8), dp(8))
                     setOnClickListener { click(name) }
                 }
-                val label = text(name, 17f, true, Color.BLACK).apply {maxLines = 3}
-                item.addView(label)
+                val label = text(name, 20f, true, Color.BLACK).apply {maxLines = 2;gravity = Gravity.TOP}
+                item.addView(label, LinearLayout.LayoutParams(-1, dp(62)))
                 val cover = products.firstOrNull {
                     it.category == name || it.subcategory == name ||
                     (name == "Стройматериалы" && it.category == "Интерьер и отделка")
                 }
-                val preview = photo(cover, 95).apply { setPadding(dp(48), dp(2), 0, 0) }
-                item.addView(preview)
-                row.addView(item, LinearLayout.LayoutParams(0, dp(167), 1f).apply {
-                    leftMargin = dp(14);rightMargin = dp(6);bottomMargin = dp(14)
+                val preview = photo(cover, 110).apply { scaleType = ImageView.ScaleType.FIT_END;setBackgroundColor(Color.TRANSPARENT) }
+                item.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f).apply { leftMargin = dp(40) })
+                row.addView(item, LinearLayout.LayoutParams(0, dp(212), 1f).apply {
+                    leftMargin = dp(13);rightMargin = dp(13);bottomMargin = dp(26)
                 })
             }
             if (pair.size < 2) row.addView(View(activity),LinearLayout.LayoutParams(0, 1, 1f))
@@ -454,16 +532,26 @@ class Storefront(
         return selected
     }
     private fun listing(body: LinearLayout) {
-        val menu = horizontal()
+        val menu = horizontal().apply { setBackgroundColor(Color.WHITE) }
         val sortOptions = listOf("Популярные","Цена ↑","Цена ↓")
-        menu.addView(outlineButton("⚑ Фильтры", {
+        fun half(glyph: String, title: String, click: () -> Unit) = horizontal().apply {
+            gravity = Gravity.CENTER
+            background = Style.interactiveBg(Color.WHITE, Style.PRESSED, 0f)
+            setOnClickListener { click() }
+            addView(LineIcon(activity, glyph, ink), LinearLayout.LayoutParams(dp(20), dp(20)).apply { rightMargin = dp(8) })
+            addView(text(title, 18f, false, ink))
+        }
+        menu.addView(half("filter", "Фильтры") {
             Toast.makeText(activity, "Отображаются товары выбранной категории", Toast.LENGTH_SHORT).show()
-        }),LinearLayout.LayoutParams(0, dp(47), 1f))
-        menu.addView(outlineButton("⇅ " + sorting, {
+        },LinearLayout.LayoutParams(0, dp(52), 1f))
+        menu.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(dp(1), dp(52)))
+        menu.addView(half("sort", sorting) {
             sorting = sortOptions[(sortOptions.indexOf(sorting) + 1) % sortOptions.size]
             navigate("shop:listing")
-        }),LinearLayout.LayoutParams(0, dp(47), 1f))
+        },LinearLayout.LayoutParams(0, dp(52), 1f))
         body.addView(menu)
+        body.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(-1, dp(1)))
+        space(body, 14)
         val items = filtered()
         if (items.isEmpty()) empty(body, "В загруженном каталоге пока нет товаров") {changeTab("Каталог")}
         else {
@@ -476,42 +564,62 @@ class Storefront(
             }
         }
     }
-    private fun card(item: Item): LinearLayout {
+    private fun card(item: Item, withButton: Boolean): LinearLayout {
+        // Every block has a fixed height so neighbouring cards line up: photo, 3 title lines,
+        // price, old-price line (blank when absent) and the button sit on the same baselines.
         val outer = vertical().apply {
             setBackgroundColor(Color.WHITE)
+            setPadding(0, 0, 0, dp(12))
             setOnClickListener { openProduct(item.id) }
         }
-        outer.addView(photo(item, 156))
-        val row = horizontal()
-        row.addView(text(item.title, 14f, false, Color.DKGRAY).apply {
-            maxLines = 3
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        },LinearLayout.LayoutParams(0,dp(72),1f))
-        row.addView(text(if (favorite(item.id)) "♥" else "♡", 28f, false, ink).apply {
+        outer.addView(photo(item, 184).apply { setPadding(dp(6), dp(6), dp(6), dp(6)) },
+            LinearLayout.LayoutParams(-1, dp(184)))
+        val info = vertical().apply { setPadding(dp(10), dp(10), dp(10), 0) }
+        outer.addView(info)
+        val row = horizontal().apply { gravity = Gravity.TOP }
+        row.addView(text(item.title, 16f, false, Color.rgb(30, 34, 38)).apply {
             gravity = Gravity.TOP
-            setOnClickListener { toggleFavorite(item.id) }
-        },LinearLayout.LayoutParams(dp(29),dp(65)))
-        outer.addView(row)
-        outer.addView(text(price(item.price) + " / " + item.unit, 15f, true, ink),
-            LinearLayout.LayoutParams(-1,dp(33)))
-        if (item.oldPrice != null) {
-            outer.addView(text(price(item.oldPrice), 12f, false,Color.GRAY).apply {
-                paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-            })
+            setLines(3)
+            setLineSpacing(0f, 1.05f)
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        },LinearLayout.LayoutParams(0,-2,1f))
+        val fav = favorite(item.id)
+        row.addView(LineIcon(activity, if (fav) "heart-fill" else "heart", ink).apply {
+            contentDescription = if (fav) "Убрать из избранного" else "В избранное"
+            setOnClickListener {
+                animate().scaleX(1.25f).scaleY(1.25f).setDuration(110).withEndAction { toggleFavorite(item.id) }.start()
+            }
+        },LinearLayout.LayoutParams(dp(26),dp(26)).apply { leftMargin = dp(6) })
+        info.addView(row)
+        space(info, 8)
+        val discount = item.oldPrice != null && item.price != null && item.oldPrice > item.price
+        val priceRow = horizontal()
+        priceRow.addView(priceText(item.price, item.unit, 17f, if (discount) red else ink))
+        if (discount) {
+            val pct = ((1 - item.price!! / item.oldPrice!!) * 100).roundToInt()
+            priceRow.addView(text("-$pct%", 13f, false, red).apply {
+                background = rounded(Color.WHITE, 4, red)
+                setPadding(dp(5), 0, dp(5), 0)
+            }, LinearLayout.LayoutParams(-2, dp(22)).apply { leftMargin = dp(8) })
         }
-        space(outer, 6)
-        outer.addView(button(if (cart().containsKey(item.id)) "В корзине" else "В корзину", {
-            addCart(item.id, 1)
-        }), LinearLayout.LayoutParams(-1,dp(40)))
-        space(outer, 6)
+        info.addView(priceRow, LinearLayout.LayoutParams(-1, dp(26)))
+        info.addView(text(item.oldPrice?.let { price(it) } ?: "", 14f, false, Color.rgb(150, 155, 160)).apply {
+            paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+        }, LinearLayout.LayoutParams(-1, dp(20)))
+        if (withButton) {
+            space(info, 10)
+            info.addView(button(if (cart().containsKey(item.id)) "В корзине" else "В корзину", {
+                addCart(item.id, 1)
+            }), LinearLayout.LayoutParams(-1,dp(42)))
+        }
         return outer
     }
-    private fun productGrid(body: LinearLayout, list: List<Item>) {
+    private fun productGrid(body: LinearLayout, list: List<Item>, buttons: Boolean = true) {
         list.chunked(2).forEach { pair ->
-            val r = horizontal().apply { gravity = Gravity.TOP }
+            val r = horizontal().apply { gravity = Gravity.TOP;setPadding(dp(10), 0, dp(10), 0) }
             pair.forEach { item ->
-                r.addView(card(item),LinearLayout.LayoutParams(0,-2,1f).apply {
-                    leftMargin = dp(14);rightMargin = dp(7);topMargin=dp(10);bottomMargin=dp(12)
+                r.addView(card(item, buttons),LinearLayout.LayoutParams(0,-2,1f).apply {
+                    leftMargin = dp(6);rightMargin = dp(6);topMargin=dp(6);bottomMargin=dp(6)
                 })
             }
             if (pair.size<2)r.addView(View(activity),LinearLayout.LayoutParams(0,1,1f))
@@ -520,30 +628,51 @@ class Storefront(
     }
     private fun detail(body: LinearLayout) {
         val p = product(currentProduct) ?: return
-        body.addView(photo(p, 350))
-        body.addView(text(p.id, 12f, false, Color.GRAY).apply {
-            setPadding(dp(16), dp(17), 0, 0)
+        body.addView(photo(p, 350).apply { setPadding(0, dp(16), 0, dp(16)) })
+        val info = vertical().apply { setBackgroundColor(Color.rgb(247, 247, 247));setPadding(0, dp(18), 0, 0) }
+        body.addView(info)
+        info.addView(text(p.id, 15f, false, Color.rgb(150, 155, 160)).apply {
+            setPadding(dp(16), 0, 0, 0)
         })
-        body.addView(text(p.title, 20f, false, Color.DKGRAY).apply {
-            setPadding(dp(16), dp(20), dp(16), dp(10))
+        info.addView(text(p.title, 23f, false, Color.rgb(60, 66, 72)).apply {
+            setPadding(dp(16), dp(12), dp(16), dp(8))
         })
-        body.addView(text(price(p.price) + " / " + p.unit, 23f, true, Color.BLACK).apply {
-            setPadding(dp(16), dp(12), 0, dp(12))
+        info.addView(priceText(p.price, p.unit, 27f, Color.BLACK).apply {
+            setPadding(dp(16), dp(12), 0, dp(16))
         })
         val actions=horizontal().apply {setPadding(dp(16),0,dp(16),0)}
-        actions.addView(button(if (favorite(p.id)) "♥ В избранном" else "♡ В избранное", {
+        fun iconButton(glyph: String, title: String, fill: Int, click: () -> Unit) = horizontal().apply {
+            gravity = Gravity.CENTER
+            background = pressable(fill, 8)
+            isClickable = true
+            setOnClickListener { click() }
+            addView(LineIcon(activity, glyph, Color.WHITE), LinearLayout.LayoutParams(dp(24), dp(24)).apply { rightMargin = dp(10) })
+            addView(text(title, 18f, false, Color.WHITE))
+        }
+        val fav = favorite(p.id)
+        actions.addView(iconButton(if (fav) "heart-fill" else "heart", if (fav) "В избранном" else "В избранное", orange) {
             toggleFavorite(p.id)
-        },orange),LinearLayout.LayoutParams(0, dp(49),1f).apply {rightMargin=dp(8)})
-        actions.addView(button(if (cart().containsKey(p.id)) "В корзине" else "В корзину",{
+        },LinearLayout.LayoutParams(0, dp(56),1f).apply {rightMargin=dp(14)})
+        actions.addView(iconButton("bag", if (cart().containsKey(p.id)) "В корзине" else "В корзину", blue) {
             addCart(p.id,1)
-        }),LinearLayout.LayoutParams(0,dp(49),1f))
-        body.addView(actions)
-        val sections=horizontal().apply {setPadding(dp(16),dp(13),dp(16),dp(13))}
-        sections.addView(outlineButton("Описание",{showParameters=false;navigate("shop:product")}),
-            LinearLayout.LayoutParams(0,dp(48),1f))
-        sections.addView(outlineButton("Параметры",{showParameters=true;navigate("shop:product")}),
-            LinearLayout.LayoutParams(0,dp(48),1f))
-        body.addView(sections)
+        },LinearLayout.LayoutParams(0,dp(56),1f))
+        info.addView(actions)
+        // Segmented control: grey track, the active half is a raised white pill.
+        val sections=horizontal().apply {
+            background = rounded(Color.rgb(236, 237, 238), 10, Color.rgb(236, 237, 238))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        listOf("Описание" to false, "Параметры" to true).forEach { (title, params) ->
+            val active = showParameters == params
+            sections.addView(text(title, 18f, false, Color.rgb(30, 34, 38)).apply {
+                gravity = Gravity.CENTER
+                if (active) { background = rounded(Color.WHITE, 8, Color.WHITE);elevation = dp(2).toFloat() }
+                setOnClickListener { if (!active) { showParameters = params;navigate("shop:product") } }
+            }, LinearLayout.LayoutParams(0, -1, 1f))
+        }
+        info.addView(sections, LinearLayout.LayoutParams(-1, dp(56)).apply {
+            leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(18);bottomMargin = dp(8)
+        })
         if (showParameters) {
             parameter(body,"Артикул",p.id)
             parameter(body,"Категория",p.category)
@@ -561,45 +690,50 @@ class Storefront(
     }
     private fun parameter(body:LinearLayout,name:String,value:String){
         val r=horizontal().apply {setPadding(dp(16),dp(13),dp(16),dp(13))}
-        r.addView(text(name,14f),LinearLayout.LayoutParams(0,-2,1f))
-        r.addView(text(value,14f,true,Color.BLACK).apply {gravity=Gravity.END;maxLines=3},
+        r.addView(text(name,18f,false,Color.rgb(40,44,48)),LinearLayout.LayoutParams(0,-2,1f))
+        r.addView(text(value,18f,true,Color.rgb(40,44,48)).apply {gravity=Gravity.END;maxLines=3
+            paintFlags=paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG},
             LinearLayout.LayoutParams(0,-2,1f))
         body.addView(r)
         body.addView(View(activity).apply{setBackgroundColor(line)},LinearLayout.LayoutParams(-1,dp(1)))
     }
     private fun empty(body:LinearLayout,title:String,action:()->Unit) {
-        space(body, 110)
-        body.addView(text(title,20f,true).apply {
+        space(body, 96)
+        body.addView(text(title,25f,true,ink).apply {
             gravity=Gravity.CENTER
-            setPadding(dp(18),0,dp(18),dp(10))
+            setPadding(dp(18),0,dp(18),dp(12))
         })
-        body.addView(text("Начните с просмотра каталога товаров",15f,false,Color.DKGRAY)
-            .apply {gravity=Gravity.CENTER})
-        space(body,25)
-        body.addView(button("Вернуться к покупкам",action),
-            LinearLayout.LayoutParams(-1,dp(48)).apply {
-                leftMargin=dp(64);rightMargin=dp(64)
-            })
-        space(body,60)
+        body.addView(text("Начните с просмотра каталога товаров,\nи вы обязательно найдете то, что вам нужно",16f,false,Color.rgb(40,44,48))
+            .apply {gravity=Gravity.CENTER;setLineSpacing(0f,1.15f)})
+        space(body,22)
+        body.addView(button("Вернуться к покупкам",action).apply {
+                textSize=17f;setTypeface(null,Typeface.BOLD);setPadding(dp(26),0,dp(26),0)
+            },
+            LinearLayout.LayoutParams(-2,dp(56)).apply {gravity=Gravity.CENTER_HORIZONTAL})
+        space(body,48)
     }
     fun cartScreen(body:LinearLayout) {
         val items=cart().entries.mapNotNull { (id,n)->product(id)?.let { it to n } }
         if(items.isEmpty()) {
             empty(body,"В вашей корзине пусто") {changeTab("Каталог")}
             if(recent().isNotEmpty()){
-                sectionTitle(body,"Ранее вы смотрели")
+                sectionTitle(body,"Ранее вы смотрели") {}
                 productGrid(body,recent().take(4))
             }
             return
         }
-        val promo=horizontal().apply {setPadding(dp(15),dp(15),dp(15),dp(10))}
-        promo.addView(text("Промокод",15f,false,Color.GRAY).apply {
-            background=rounded(Color.rgb(234,235,237),5)
-            setPadding(dp(18),0,0,0)
-        },LinearLayout.LayoutParams(0,dp(48),1f))
-        promo.addView(button("Применить", {
-            Toast.makeText(activity,"Промокоды официальной ОМА в демоверсии недоступны",Toast.LENGTH_SHORT).show()
-        }),LinearLayout.LayoutParams(dp(116),dp(48)))
+        val promo=horizontal().apply {setPadding(dp(24),dp(24),dp(24),dp(10))}
+        promo.addView(text("Промокод",17f,false,Color.rgb(110,116,122)).apply {
+            background=GradientDrawable().apply{setColor(Color.rgb(230,232,234))
+                cornerRadii=FloatArray(8){if(it==0||it==1||it==6||it==7)dp(4).toFloat() else 0f}}
+            setPadding(dp(32),0,0,0)
+        },LinearLayout.LayoutParams(0,dp(52),1f))
+        promo.addView(text("Применить",19f,false,Color.WHITE).apply {
+            gravity=Gravity.CENTER
+            background=GradientDrawable().apply{setColor(blue)
+                cornerRadii=FloatArray(8){if(it in 2..5)dp(4).toFloat() else 0f}}
+            setOnClickListener{Toast.makeText(activity,"Промокоды официальной ОМА в демоверсии недоступны",Toast.LENGTH_SHORT).show()}
+        },LinearLayout.LayoutParams(dp(176),dp(52)))
         body.addView(promo)
         items.forEach { (p,qty) -> swipeItem(body,p,qty) }
         space(body,40)

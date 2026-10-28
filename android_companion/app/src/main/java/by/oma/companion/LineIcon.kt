@@ -46,6 +46,16 @@ class LineIcon(context: Context, private val shape: String, private val tint: In
             "camera"->{canvas.chain(2f,8f,2f,20f,22f,20f,22f,8f,17f,8f,15f,5f,9f,5f,7f,8f,2f,8f);canvas.drawCircle(12f,13.5f,4f,pen)}
             "trash"->{canvas.chain(3f,6f,21f,6f);canvas.chain(9f,6f,9f,3f,15f,3f,15f,6f);canvas.chain(5f,6f,6f,22f,18f,22f,19f,6f);canvas.chain(10f,10f,10f,18f);canvas.chain(14f,10f,14f,18f)}
             "chevron"->{canvas.chain(9f,5f,16f,12f,9f,19f)}
+            "heart-fill"->{val p=Path();p.moveTo(12f,21f);p.cubicTo(0f,14f,1f,5f,5f,4f);p.cubicTo(9f,2f,12f,6f,12f,6f);p.cubicTo(12f,6f,16f,2f,20f,4f);p.cubicTo(25f,9f,21f,15f,12f,21f);pen.style=Paint.Style.FILL_AND_STROKE;canvas.drawPath(p,pen);pen.style=Paint.Style.STROKE}
+            "drill"->{canvas.rect(3f,5f,15f,11f);canvas.chain(15f,7f,18f,7f,18f,9f,15f,9f);canvas.chain(18f,8f,22f,8f);canvas.chain(7f,11f,6f,18f,10f,18f,11f,11f);canvas.rect(5f,18f,11f,21f)}
+            "faucet"->{canvas.chain(4f,10f,14f,10f,14f,7f,4f,7f,4f,10f);canvas.chain(9f,7f,9f,3f);canvas.chain(6f,3f,12f,3f);canvas.chain(14f,8f,19f,8f,20f,10f,20f,14f);canvas.chain(20f,17f,20f,18f);canvas.chain(18f,20f,18f,21f);canvas.chain(22f,20f,22f,21f);canvas.chain(4f,10f,4f,21f)}
+            "bricks"->{canvas.rect(2f,6f,22f,20f);canvas.chain(2f,10.7f,22f,10.7f);canvas.chain(2f,15.3f,22f,15.3f);canvas.chain(8f,6f,8f,10.7f);canvas.chain(16f,6f,16f,10.7f);canvas.chain(12f,10.7f,12f,15.3f);canvas.chain(8f,15.3f,8f,20f);canvas.chain(16f,15.3f,16f,20f)}
+            "bulb"->{canvas.chain(9f,17f,9f,14f,6.5f,11f,6f,8f,8f,4f,12f,2.5f,16f,4f,18f,8f,17.5f,11f,15f,14f,15f,17f,9f,17f);canvas.chain(9.5f,20f,14.5f,20f);canvas.chain(10.5f,22.5f,13.5f,22.5f)}
+            "roller"->{canvas.rect(3f,3f,17f,8f);canvas.chain(17f,5.5f,20f,5.5f,20f,12f,12f,12f,12f,15f);canvas.rect(10.5f,15f,13.5f,22f)}
+            "filter"->{val p=Path();p.moveTo(3f,4f);p.lineTo(21f,4f);p.lineTo(14f,12f);p.lineTo(14f,20f);p.lineTo(10f,17f);p.lineTo(10f,12f);p.close();pen.style=Paint.Style.FILL_AND_STROKE;canvas.drawPath(p,pen);pen.style=Paint.Style.STROKE}
+            "sort"->{canvas.chain(7f,20f,7f,4f);canvas.chain(3f,8f,7f,4f,11f,8f);canvas.chain(17f,4f,17f,20f);canvas.chain(13f,16f,17f,20f,21f,16f)}
+            "magnifier"->{canvas.drawCircle(10f,10f,7f,pen);canvas.chain(15f,15f,21f,21f)}
+            "location"->{val p=Path();p.moveTo(21f,3f);p.lineTo(3f,11f);p.lineTo(11f,13f);p.lineTo(13f,21f);p.close();pen.style=Paint.Style.FILL_AND_STROKE;canvas.drawPath(p,pen);pen.style=Paint.Style.STROKE}
             else->{canvas.drawCircle(12f,12f,10f,pen)}
         }
         canvas.restore()
