@@ -31,7 +31,7 @@ class UnifiedActivity : Activity() {
     private val selected = Style.ORANGE
     private lateinit var api: Api
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
-        { openHomeHub() }, { openCatalogPhotoPicker() }) }
+        { openHomeHub() }, { openCatalogPhotoPicker() }, { screen == "shop:photo" }) }
     private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
     private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
     private lateinit var body: LinearLayout
