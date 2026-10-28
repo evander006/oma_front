@@ -1,9 +1,9 @@
-name: Build OMA Companion demo APK
+name: Build OMA Digital Home unified demo APK
 on:
   workflow_dispatch:
   push:
     branches:
-      - codex/oma-companion-overlay
+      - codex/oma-unified-demo
     paths:
       - 'android_companion/**'
       - '.github/workflows/companion-android.yml'
@@ -33,6 +33,6 @@ jobs:
       - name: Upload demo APK
         uses: actions/upload-artifact@v4
         with:
-          name: oma-companion-debug-apk
+          name: oma-unified-demo-debug-apk
           path: android_companion/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
