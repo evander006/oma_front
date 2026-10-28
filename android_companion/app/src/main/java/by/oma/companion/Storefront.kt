@@ -85,6 +85,7 @@ class Storefront(
     private var pageError = ""
     private val productCache = LinkedHashMap<String, Item>()
     private val pendingSkuLoads = mutableSetOf<String>()
+    private val missingSkuIds = mutableSetOf<String>()
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
     private var currentProduct = ""
@@ -195,7 +196,7 @@ class Storefront(
 
     private fun loadMissingIds(ids: Collection<String>) {
         val database = catalogDb ?: return
-        val missing = ids.filter { product(it) == null && pendingSkuLoads.add(it) }
+        val missing = ids.filter { product(it) == null && it !in missingSkuIds && pendingSkuLoads.add(it) }
         if (missing.isEmpty()) return
         catalogPool.execute {
             val found = missing.mapNotNull { sku ->
@@ -204,6 +205,7 @@ class Storefront(
             ui.post {
                 pendingSkuLoads.removeAll(missing.toSet())
                 if (database === catalogDb) {
+                    missingSkuIds.addAll(missing - found.map { it.id }.toSet())
                     rememberProducts(found)
                     if (!activity.isFinishing && !activity.isDestroyed) refresh()
                 }
@@ -1498,6 +1500,7 @@ class Storefront(
                     categoryMap = categories
                     products = emptyList()
                     productCache.clear()
+                    missingSkuIds.clear()
                     pageKey = ""
                     pageResult = null
                     pageOffset = 0
