@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - build/claude-resale-apk-20261028
     paths:
       - 'android_companion/**'
       - '.github/workflows/companion-android.yml'
