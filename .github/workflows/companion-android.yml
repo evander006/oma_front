@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - feat/android-apk-four-slide-onboarding-20261028
     paths:
       - 'android_companion/**'
       - '.github/workflows/companion-android.yml'
