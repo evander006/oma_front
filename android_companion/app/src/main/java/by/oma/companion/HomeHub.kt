@@ -391,7 +391,7 @@ class HomeHub(
                 gravity=Gravity.CENTER;setPadding(dp(5),dp(7),dp(5),dp(7));setOnClickListener{select(room)}
             },LinearLayout.LayoutParams(-1,dp(58)))
         }
-        val roomScroll=ScrollView(activity).apply {addView(menu,ScrollView.LayoutParams(-1,-2))}
+        val roomScroll=ScrollView(activity).apply {addView(menu,android.widget.FrameLayout.LayoutParams(-1,-2))}
         shell.addView(roomScroll,LinearLayout.LayoutParams(dp(105),dp(590)))
         shell.addView(viewer,LinearLayout.LayoutParams(0,dp(590),1f))
         body.addView(shell,LinearLayout.LayoutParams(-1,dp(590)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
