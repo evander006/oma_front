@@ -298,7 +298,10 @@ class Storefront(
         refresh()
     }
     fun cartCount() = cart().values.sum()
-    fun total() = cart().entries.sumOf { (id, n) -> (product(id)?.price ?: 0.0) * n }
+    fun total(): Double {
+        loadMissingIds(cart().keys)
+        return cart().entries.sumOf { (id, n) -> (product(id)?.price ?: 0.0) * n }
+    }
     private fun addCart(id: String, delta: Int) {
         val map = cart()
         val count = (map[id] ?: 0) + delta
@@ -593,14 +596,25 @@ class Storefront(
             })
         }
         sectionTitle(body, "Популярные товары")
-        productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
+        if (catalogDb != null) {
+            val page = requestPage("home:popular", limit = 12)
+            if (page == null) renderPageState(body)
+            else productGrid(body, page.records, buttons = false)
+        } else productGrid(body, products.filter { it.price != null }.take(12), buttons = false)
     }
     fun catalog(body: LinearLayout) {
         searchBar(body)
-        tileGrid(body, rootCategories) { openCategory(it) }
-        val catalogMessage = if (catalogLoading) "Загружаем сохранённый каталог…" else "В каталоге: ${products.size} товаров"
-        body.addView(text(catalogMessage, 13f, false, Color.GRAY).apply {
-            setPadding(dp(18), dp(8), dp(15), dp(8))
+        tileGrid(body, if (catalogDb != null && categoryMap.isNotEmpty())
+            categoryMap.keys.toList() else rootCategories) { openCategory(it) }
+        val catalogMessage = when {
+            catalogLoading -> catalogNotice.ifBlank { "Подготовка каталога…" }
+            catalogDb != null -> "В каталоге ОМА: ${catalogCount} товаров (показываем по 20)"
+            catalogNotice.isNotBlank() -> catalogNotice
+            else -> "Демо-каталог: ${products.size} товаров"
+        }
+        catalogStatusView = text(catalogMessage, 14f, false, if (catalogNotice.startsWith("Ошибка")) red else Color.GRAY)
+        body.addView(catalogStatusView, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin=dp(18);rightMargin=dp(15);topMargin=dp(8);bottomMargin=dp(12)
         })
         body.addView(outlineButton("Загрузить каталог из output.zip", {
             activity.startActivityForResult(
@@ -651,6 +665,27 @@ class Storefront(
     }
     private fun categoryScreen(body: LinearLayout) {
         searchBar(body)
+        if (catalogDb != null) {
+            val subcats = categoryMap[selectedCategory].orEmpty()
+            if (subcats.isNotEmpty()) tileGrid(body, subcats) { openListing(it) }
+            sectionTitle(body, "Товары категории")
+            val page = requestPage("category:$selectedCategory",
+                category = selectedCategory, limit = 8)
+            if (page == null) renderPageState(body)
+            else {
+                productGrid(body, page.records)
+                if (page.total > 8) {
+                    body.addView(outlineButton("Посмотреть все ${page.total} товаров", {
+                        selectedSubcategory = ""
+                        pageOffset = 0
+                        navigate("shop:listing")
+                    }), LinearLayout.LayoutParams(-1, dp(46)).apply {
+                        leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(20)
+                    })
+                }
+            }
+            return
+        }
         val subcats = products.filter { it.category == selectedCategory }
             .map { it.subcategory }.filter { it.isNotBlank() }.distinct()
         if (subcats.isNotEmpty()) {
@@ -695,11 +730,24 @@ class Storefront(
         menu.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(dp(1), dp(52)))
         menu.addView(half("sort", sorting) {
             sorting = sortOptions[(sortOptions.indexOf(sorting) + 1) % sortOptions.size]
+            pageOffset = 0
             navigate("shop:listing")
         },LinearLayout.LayoutParams(0, dp(52), 1f))
         body.addView(menu)
         body.addView(View(activity).apply { setBackgroundColor(line) }, LinearLayout.LayoutParams(-1, dp(1)))
         space(body, 14)
+        if (catalogDb != null) {
+            val page = requestPage("listing:$selectedCategory:$selectedSubcategory:$sorting:$pageOffset",
+                category = selectedCategory, subcategory = selectedSubcategory,
+                sort = sorting, offset = pageOffset)
+            if (page == null) renderPageState(body)
+            else {
+                if (page.records.isEmpty()) renderPageState(body)
+                else productGrid(body, page.records)
+                pageNavigation(body, page, "shop:listing")
+            }
+            return
+        }
         val items = filtered()
         if (items.isEmpty()) empty(body, "В загруженном каталоге пока нет товаров") {changeTab("Каталог")}
         else {
@@ -861,6 +909,7 @@ class Storefront(
         space(body,48)
     }
     fun cartScreen(body:LinearLayout) {
+        loadMissingIds(cart().keys)
         val items=cart().entries.mapNotNull { (id,n)->product(id)?.let { it to n } }
         if(items.isEmpty()) {
             empty(body,"В вашей корзине пусто") {changeTab("Каталог")}
@@ -932,6 +981,7 @@ class Storefront(
         })
     }
     fun favoritesScreen(body:LinearLayout){
+        loadMissingIds(favorites())
         val items=favorites().mapNotNull {product(it)}
         if (items.isEmpty()) {
             empty(body,"У вас нет избранных товаров") {changeTab("Каталог")}
@@ -940,6 +990,21 @@ class Storefront(
     private fun searchScreen(body:LinearLayout){
         searchBar(body)
         val q=searchQuery.lowercase(Locale.ROOT).trim()
+        if (catalogDb != null) {
+            if (q.isBlank()) {
+                sectionTitle(body, "Введите название товара")
+                return
+            }
+            val page = requestPage("search:$q:$pageOffset", search = q, offset = pageOffset)
+            sectionTitle(body, if (page == null) "Ищем товары…" else "Найдено: ${page.total}")
+            if (page == null) renderPageState(body)
+            else {
+                if (page.records.isEmpty()) renderPageState(body)
+                else productGrid(body, page.records)
+                pageNavigation(body, page, "shop:search")
+            }
+            return
+        }
         val matches=if(q.isBlank())emptyList() else products.filter {
             it.title.lowercase(Locale.ROOT).contains(q) ||
             it.subcategory.lowercase(Locale.ROOT).contains(q) ||
