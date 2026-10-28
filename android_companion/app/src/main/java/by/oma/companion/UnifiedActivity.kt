@@ -154,7 +154,7 @@ class UnifiedActivity : Activity() {
         divider(root)
         val scroller=ScrollView(this).apply {isFillViewport=true;setBackgroundColor(surface)}
         body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
-        scroller.addView(body,ScrollView.LayoutParams(-1,-2))
+        scroller.addView(body,android.widget.FrameLayout.LayoutParams(-1,-2))
         root.addView(scroller,LinearLayout.LayoutParams(-1,0,1f))
         divider(root)
         val bottom=LinearLayout(this).apply{setBackgroundColor(Color.WHITE);gravity=Gravity.CENTER}
