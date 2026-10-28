@@ -205,7 +205,6 @@ class UnifiedActivity : Activity() {
         row("Договор публичной оферты","receipt",{go("info")})
         row("Адреса магазинов","store",{go("info")})
         row("Список сравнения","compare",{go("info")})
-        note("Неофициальное демонстрационное приложение для хакатона.")
     }
     private fun auth() {
         title("Вход в демо-профиль")
