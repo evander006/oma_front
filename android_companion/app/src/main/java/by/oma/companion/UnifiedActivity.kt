@@ -26,6 +26,7 @@ class UnifiedActivity : Activity() {
     private val omaBlue = Color.rgb(0, 101, 174)
     private val selected = Color.rgb(187, 148, 74)
     private lateinit var api: Api
+    private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() }) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
     private var tab = "Профиль"
@@ -45,6 +46,7 @@ class UnifiedActivity : Activity() {
         window.navigationBarColor = Color.WHITE
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         api = Api(this)
+        shop.loadExistingCatalog()
         contractorId = prefs.getInt("contractor", 0)
         masterId = contractorId
         tab = savedInstanceState?.getString("tab") ?: "Профиль"
@@ -67,7 +69,8 @@ class UnifiedActivity : Activity() {
     private fun tabTo(s:String) { tab=s; screen=""; render() }
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
-        if (screen in listOf("3d","passport","master","smart")) go("digital")
+        if (screen.startsWith("shop:")) go(shop.back(screen))
+        else if (screen in listOf("3d","passport","master","smart")) go("digital")
         else if (screen == "masterMode") go("master")
         else if (screen != "") go("")
         else if (tab != "Профиль") tabTo("Профиль")
@@ -148,15 +151,21 @@ class UnifiedActivity : Activity() {
         },LinearLayout.LayoutParams(dp(30),dp(32)).apply {rightMargin=dp(10)})
         val heading=when(screen) {
             "auth"->"Вход и регистрация";"digital"->"Цифровой дом"
+            "shop:product","shop:category","shop:listing","shop:search","shop:checkout" -> shop.heading(screen)
             "3d"->"3D-модель";"passport"->"Паспорт жилья"
             "master"->"Мой мастер";"masterMode"->"Кабинет мастера"
             "smart"->"Умный поиск";"account"->"Моя информация"
             "orders"->"История заказов";"settings"->"Настройки"
             "info"->"Информация";else->tab
         }
-        header.addView(label(heading,19.5f,true),LinearLayout.LayoutParams(0,-1,1f))
-        root.addView(header,LinearLayout.LayoutParams(-1,dp(58)))
-        divider(root)
+        header.addView(label(heading,19.5f,true).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        },LinearLayout.LayoutParams(0,-1,1f))
+        if (!(screen == "" && tab == "Главная")) {
+            root.addView(header,LinearLayout.LayoutParams(-1,dp(58)))
+            divider(root)
+        }
         val scroller=ScrollView(this).apply {isFillViewport=true;setBackgroundColor(surface)}
         body=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
         scroller.addView(body,android.widget.FrameLayout.LayoutParams(-1,-2))
@@ -168,12 +177,29 @@ class UnifiedActivity : Activity() {
             val col=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
                 setOnClickListener {tabTo(name)}}
             val color=if (tab==name) selected else ink
-            col.addView(icon(glyph,28,color))
+            val iconFrame = android.widget.FrameLayout(this)
+            iconFrame.addView(icon(glyph,28,color),android.widget.FrameLayout.LayoutParams(dp(28),dp(28),Gravity.CENTER))
+            if (name == "Корзина" && shop.cartCount() > 0) {
+                val badge = label(shop.cartCount().toString(),9f,true,Color.WHITE).apply {
+                    gravity = Gravity.CENTER
+                    background = Style.bg(Style.ORANGE,8f)
+                }
+                iconFrame.addView(badge, android.widget.FrameLayout.LayoutParams(
+                    dp(18),dp(18),Gravity.TOP or Gravity.RIGHT))
+            }
+            col.addView(iconFrame,LinearLayout.LayoutParams(dp(35),dp(31)))
             col.addView(label(name,10f,false,color).apply{gravity=Gravity.CENTER})
             bottom.addView(col,LinearLayout.LayoutParams(0,-1,1f))
         }
+        if (screen == "" && tab == "Корзина" && shop.cartCount() > 0) {
+            root.addView(shop.checkoutFooter())
+        }
         root.addView(bottom,LinearLayout.LayoutParams(-1,dp(65)))
         setContentView(root)
+        if (screen.startsWith("shop:")) {
+            shop.render(screen, body)
+            return
+        }
         when(screen) {
             "auth"->auth()
             "digital"->digital()
@@ -187,10 +213,10 @@ class UnifiedActivity : Activity() {
             "info"-> {title("Информация");note("Оригинальные сервисы ОМА доступны только в официальном приложении. Здесь — демоверсия.") }
             else->when(tab) {
                 "Профиль"->profile()
-                "Главная"->home()
-                "Каталог"->catalog()
-                "Корзина"->cart()
-                "Избранное"->favorites()
+                "Главная"->shop.home(body)
+                "Каталог"->shop.catalog(body)
+                "Корзина"->shop.cartScreen(body)
+                "Избранное"->shop.favoritesScreen(body)
             }
         }
     }
@@ -619,6 +645,10 @@ class UnifiedActivity : Activity() {
     @Deprecated("Deprecated in Android")
     override fun onActivityResult(code:Int,result:Int,data:Intent?) {
         super.onActivityResult(code,result,data)
+        if (code == Storefront.PICK_CATALOG) {
+            if (result == RESULT_OK && data?.data != null) shop.importCatalog(data.data!!)
+            return
+        }
         if(code!=pickPhoto||result!=RESULT_OK||data?.data==null)return
         val uri=data.data?:return
         notice("Анализируем фотографию…")
