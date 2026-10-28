@@ -1,0 +1,11 @@
+<resources>
+    <!-- OMA blue for spinners, dropdowns, checkboxes and text cursors instead of the stock teal. -->
+    <style name="OmaTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#0059AA</item>
+        <item name="android:colorPrimaryDark">#00447F</item>
+        <item name="android:colorAccent">#0059AA</item>
+        <item name="android:colorControlActivated">#0059AA</item>
+        <item name="android:colorControlHighlight">#220059AA</item>
+        <item name="android:textColorHighlight">#550059AA</item>
+    </style>
+</resources>
