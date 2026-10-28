@@ -4,6 +4,12 @@ import 'package:oma/app/router/app_routes.dart';
 import 'package:oma/main.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+Future<void> skipLaunchIntro(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Пропустить'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -14,6 +20,7 @@ void main() {
     await tester.pumpWidget(OmaApp(prefs: prefs));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    await skipLaunchIntro(tester);
 
     expect(find.text('Ремонт под ключ'), findsWidgets);
     expect(find.text('Дом, в котором хорошо'), findsOneWidget);
@@ -30,6 +37,7 @@ void main() {
     await tester.pumpWidget(OmaApp(prefs: prefs));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    await skipLaunchIntro(tester);
 
     await tester.tap(find.text('Услуги').last);
     await tester.pumpAndSettle();
@@ -47,6 +55,7 @@ void main() {
     await tester.pumpWidget(OmaApp(prefs: prefs));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    await skipLaunchIntro(tester);
 
     // Room3dScreen is a root-level route, while the home passport belongs to
     // the Profile StatefulShellBranch. This reproduces that exact transition.
@@ -71,6 +80,7 @@ void main() {
     await tester.pumpWidget(OmaApp(prefs: prefs));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
+    await skipLaunchIntro(tester);
 
     await tester.tap(find.text('Услуги').last);
     await tester.pumpAndSettle();
