@@ -154,6 +154,7 @@ class HomeHub(
             prefs.edit().putString("selected_home", it.id).apply()
         }
     }
+    fun selectedHomeName():String?=selectedHome()?.name
 
     fun title(screen: String): String = when (screen) {
         "home:add" -> "Добавить объект"
@@ -199,7 +200,7 @@ class HomeHub(
         note(body, "Выберите объект, затем нужную функцию.")
         functionRow(body, "Паспорт дома", "Данные, помещения, покупки и PDF") { navigate("home:passport") }
         functionRow(body, "3D-модель дома", "Пространственная модель выбранного объекта") { navigate("home:3d") }
-        functionRow(body, "Знающий мастер", "Подбор мастера и заявка на работы") { navigate("master") }
+        functionRow(body, "Знающий мастер", "Подбор мастера и заявка на работы") { navigate("master:hub") }
     }
 
     private fun functionRow(body: LinearLayout, name: String, subtitle: String, action: () -> Unit) {

@@ -29,6 +29,7 @@ class UnifiedActivity : Activity() {
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
         { openHomeHub() }, { openCatalogPhotoPicker() }) }
     private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
+    private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
     private var tab = "Профиль"
@@ -100,6 +101,7 @@ class UnifiedActivity : Activity() {
         go(when(route) {
             "passport" -> "home:passport"
             "3d" -> "home:3d"
+            "master" -> "master:hub"
             else -> route
         })
     }
@@ -130,6 +132,7 @@ class UnifiedActivity : Activity() {
                 homeHub.closePreview()
                 if (screen == "home:hub") { screen="";render() } else go("home:hub")
             }
+            screen.startsWith("master:") -> go(masterHub.back(screen))
             screen in listOf("3d", "passport", "master", "smart") -> {
                 screen = featureOriginScreen
                 featurePopupOpen = signedIn()
@@ -217,7 +220,8 @@ class UnifiedActivity : Activity() {
         val heading=when(screen) {
             "auth"->"Вход и регистрация";"digital"->"Новые функции"
             "shop:product","shop:category","shop:listing","shop:search","shop:photo","shop:checkout" -> shop.heading(screen)
-            else -> if (screen.startsWith("home:")) homeHub.title(screen) else when(screen) {
+            else -> if (screen.startsWith("home:")) homeHub.title(screen)
+            else if(screen.startsWith("master:"))masterHub.title(screen) else when(screen) {
             "3d"->"3D-модель дома";"passport"->"Паспорт дома"
             "master"->"Знающий мастер";"masterMode"->"Кабинет мастера"
             "smart"->"Поиск по фото";"account"->"Моя информация"
@@ -291,6 +295,10 @@ class UnifiedActivity : Activity() {
         }
         if (screen.startsWith("home:")) {
             homeHub.render(screen, body)
+            return
+        }
+        if(screen.startsWith("master:")){
+            masterHub.render(screen,body)
             return
         }
         when(screen) {
@@ -499,7 +507,7 @@ class UnifiedActivity : Activity() {
         row("Паспорт дома","receipt",{go("passport")},true)
         row("3D-модель дома","box",{go("3d")},true)
         row("Поиск по фото","search",{go("smart")},true)
-        row("Знающий мастер","hammer",{go("master")},true)
+        row("Знающий мастер","hammer",{go("master:hub")},true)
     }
     private fun property(mode:String) {
         title(if(mode=="3d") "3D-модель" else "Паспорт жилья")

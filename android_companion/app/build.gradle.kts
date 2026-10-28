@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9.0-photo-search-room-geometry"
+        versionCode = 10
+        versionName = "0.10.0-master-marketplace"
     }
     buildTypes {
         release { isMinifyEnabled = false }
