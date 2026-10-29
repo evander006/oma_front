@@ -20,7 +20,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build debug APK
+      - name: Audit full embedded OMA catalog
+        run: python3 tools/audit_embedded_catalog.py android_companion/app/src/main/assets/embedded_catalog.db.bin --json catalog-audit.json
+      - name: Publish catalog quality report
+        uses: actions/upload-artifact@v4
+        with:
+          name: oma-catalog-audit
+          path: catalog-audit.json
+          if-no-files-found: error
+      - name: Build and test debug APK
         run: gradle -p android_companion :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
