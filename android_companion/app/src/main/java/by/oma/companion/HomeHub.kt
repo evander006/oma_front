@@ -33,7 +33,6 @@ import java.util.UUID
 /** Local digital-home demo. It never reads the real OMA account or purchase history. */
 class HomeHub(
     private val activity: Activity,
-    private val api: Api,
     private val navigate: (String) -> Unit,
     private val purchases: () -> JSONArray
 ) {
@@ -437,8 +436,9 @@ class HomeHub(
                     request: android.webkit.WebResourceRequest?
                 ): Boolean {
                     val target = request?.url ?: return false
-                    val trustedHost = android.net.Uri.parse(api.baseUrl).host
-                    return target.host != trustedHost
+                    // Only the bundled editor's isolated origin may stay in this WebView.
+                    // External links must never inherit the native JavaScript bridge.
+                    return target.host != "oma-room-editor.invalid"
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
