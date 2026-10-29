@@ -103,6 +103,8 @@ class Storefront(
     private var photoDetected = ""
     private var photoSearchToken = 0
     private var photoRemoteSucceeded = false
+    private var photoLocalFinished = false
+    private var photoRemoteFinished = false
     private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
@@ -1025,35 +1027,58 @@ class Storefront(
         photoUri = uri; photoBusy = true; photoError = ""; photoMatches = emptyList()
         photoAnalysisNote = ""; photoDetected = ""
         photoRemoteSucceeded = false
+        photoLocalFinished = false; photoRemoteFinished = false
         photoMatchLabel = "Релевантность"
         navigate("shop:photo")
 
         // The bundled on-device labeler responds quickly, even without a server.
         analyzePhotoOnDevice(uri, requestId)
 
-        // A configured remote vision provider can improve the object terms later.
+        // A remote vision/index response can refine the local candidates.
+        // Always finish remote state, including network errors and upload failures,
+        // so a valid photo never leaves the user stuck on "0" or a spinner.
         pool.execute {
-            val photoBytes = runCatching { preparePhotoUpload(uri) }
-            photoBytes.onSuccess { bytes ->
+            val bytes = runCatching { preparePhotoUpload(uri) }.getOrNull()
+            if (bytes == null) {
+                ui.post {
+                    if (requestId == photoSearchToken && isPhotoSearchVisible()) {
+                        photoRemoteFinished = true
+                        if (photoLocalFinished) {
+                            photoBusy = false
+                            navigate("shop:photo")
+                        }
+                    }
+                }
+            } else {
                 api.visualSearch(bytes, "image/jpeg") { remote ->
-                    remote.onSuccess { raw ->
+                    if (remote.isFailure) {
+                        if (requestId == photoSearchToken && isPhotoSearchVisible()) {
+                            photoRemoteFinished = true
+                            if (photoLocalFinished) {
+                                photoBusy = false
+                                navigate("shop:photo")
+                            }
+                        }
+                    } else {
                         pool.execute {
-                            val result = runCatching { parseRemoteMatches(raw) }.getOrNull()
+                            val result = runCatching { parseRemoteMatches(remote.getOrThrow()) }.getOrNull()
                             ui.post {
-                                if (requestId != photoSearchToken || !isPhotoSearchVisible() || result == null) return@post
-                                val (found, terms, note, indexed) = result
-                                // Trust resolved server SKUs. Do not turn accurate image
-                                // hits back into an unrelated fuzzy name search.
-                                if (found.isNotEmpty() || indexed) {
-                                    photoRemoteSucceeded = true
-                                    photoMatches = found
-                                    if (terms.isNotEmpty()) photoDetected = terms.joinToString(", ")
-                                    photoAnalysisNote = note.ifBlank {
-                                        if (indexed) "Товары сопоставлены с изображениями каталога ОМА."
-                                        else "Сервер уточнил поиск по фотографии."
+                                if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                                photoRemoteFinished = true
+                                if (result != null) {
+                                    val (found, terms, note, indexed) = result
+                                    if (found.isNotEmpty() || indexed) {
+                                        photoRemoteSucceeded = true
+                                        photoMatches = found
+                                        if (terms.isNotEmpty()) photoDetected = terms.joinToString(", ")
+                                        photoAnalysisNote = note.ifBlank {
+                                            "Товары сопоставлены с каталогом ОМА."
+                                        }
+                                        photoMatchLabel = "Похожие товары"
                                     }
-                                    photoMatchLabel = "Похожие товары"
-                                    photoBusy = false; photoError = ""
+                                }
+                                if (photoLocalFinished || photoRemoteSucceeded) {
+                                    photoBusy = false
                                     navigate("shop:photo")
                                 }
                             }
@@ -1110,35 +1135,8 @@ class Storefront(
         }
     }
 
-    private fun normalizedObjectTerms(label: String): List<String> {
-        val labelText = label.lowercase(Locale.ROOT).trim()
-        if (labelText.isBlank()) return emptyList()
-        // ML Kit uses English labels; map common DIY subjects to Russian catalog names.
-        val dictionary = listOf(
-            "drill" to listOf("дрель", "шуруповерт"), "power tool" to listOf("электроинструмент"),
-            "hammer" to listOf("молоток"), "screw" to listOf("шуруп", "саморез"),
-            "tool" to listOf("инструмент"), "faucet" to listOf("смеситель"),
-            "tap" to listOf("смеситель"), "sink" to listOf("раковина", "мойка"),
-            "bathtub" to listOf("ванна"), "toilet" to listOf("унитаз"),
-            "lamp" to listOf("светильник", "лампа"), "light fixture" to listOf("светильник"),
-            "bulb" to listOf("лампа", "лампочка"), "paint brush" to listOf("кисть"),
-            "paint" to listOf("краска"), "bucket" to listOf("ведро"),
-            "roller" to listOf("валик"), "tile" to listOf("плитка"),
-            "wallpaper" to listOf("обои"), "floor" to listOf("ламинат", "покрытие"),
-            "chair" to listOf("стул", "кресло"), "table" to listOf("стол"),
-            "cabinet" to listOf("шкаф", "тумба"), "shelf" to listOf("полка"),
-            "door" to listOf("дверь"), "window" to listOf("окно"),
-            "plant" to listOf("растение"), "flower pot" to listOf("горшок"),
-            "pipe" to listOf("труба"), "cable" to listOf("кабель"),
-            "lawn" to listOf("газон"), "garden" to listOf("сад"),
-            "ladder" to listOf("лестница"), "saw" to listOf("пила"),
-            "glove" to listOf("перчатки"), "broom" to listOf("веник", "щетка")
-        )
-        val translated = dictionary.filter { labelText.contains(it.first) }.flatMap { it.second }
-        return if (translated.isNotEmpty()) translated.distinct()
-            else if (labelText.any { it in 'а'..'я' || it == 'ё' }) listOf(labelText)
-            else emptyList()
-    }
+    private fun normalizedObjectTerms(label: String): List<String> =
+        VisualTermMatcher.toSearchTerms(label)
 
     /** Matching is done on a worker to keep scrolling responsive with 134k rows. */
     private fun searchLocalTerms(terms: List<String>): List<Pair<Item, Int>> {
@@ -1232,10 +1230,11 @@ class Storefront(
                 val results = searchLocalTerms(terms)
                 ui.post {
                     if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                    photoLocalFinished = true
                     if (photoRemoteSucceeded) return@post
                     photoMatches = results
                     photoDetected = recognized.joinToString(", ") { it.text }
-                    photoBusy = false
+                    photoBusy = results.isEmpty() && !photoRemoteFinished
                     photoError = ""
                     photoMatchLabel = "Релевантность"
                     photoAnalysisNote = if (results.isNotEmpty())
@@ -1254,8 +1253,9 @@ class Storefront(
     private fun showPhotoFallback(requestId: Int, message: String) {
         ui.post {
             if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+            photoLocalFinished = true
             if (photoRemoteSucceeded) return@post
-            photoBusy = false
+            photoBusy = !photoRemoteFinished
             photoError = ""
             photoMatches = emptyList()
             photoAnalysisNote = "$message. Можно найти товар по названию в полном каталоге."
@@ -1329,10 +1329,42 @@ class Storefront(
                 body.addView(outlineButton("Выбрать другое фото",{pickPhoto()}),LinearLayout.LayoutParams(-1,dp(48)).apply{leftMargin=dp(16);rightMargin=dp(16)})
             }
             else->{
-                sectionTitle(body,"Похожие товары · ${photoMatches.size}")
+                if (photoMatches.isEmpty()) {
+                    sectionTitle(body, "Товар пока не распознан")
+                    body.addView(text(
+                        if (catalogLoading) "Встроенный каталог ещё загружается. Попробуйте поиск после загрузки."
+                        else "Автоматическое совпадение не найдено. Сделайте крупное фото одного предмета или уточните его название.",
+                        14f, false, ink
+                    ).apply { setPadding(dp(16),0,dp(16),dp(12)) })
+                    body.addView(outlineButton("Выбрать другое фото", { pickPhoto() }),
+                        LinearLayout.LayoutParams(-1,dp(46)).apply {
+                            leftMargin=dp(16);rightMargin=dp(16);bottomMargin=dp(12)
+                        })
+                    body.addView(text("Или выберите подходящий раздел каталога:", 13f, true).apply {
+                        setPadding(dp(16),0,dp(16),dp(8))
+                    })
+                    val quick = horizontal().apply { setPadding(dp(16),0,dp(12),dp(8)) }
+                    listOf("Инструмент","Сантехника","Электрика","Стройматериалы",
+                        "Интерьер и отделка","Товары для дома","Мебель","Благоустройство"
+                    ).filter { categoryMap.isEmpty() || categoryMap.containsKey(it) }.forEach { category ->
+                        quick.addView(outlineButton(category, {
+                            selectedCategory = category
+                            selectedSubcategory = ""
+                            pageOffset = 0
+                            navigate("shop:listing")
+                        }), LinearLayout.LayoutParams(-2,dp(40)).apply { rightMargin=dp(8) })
+                    }
+                    val scroll = HorizontalScrollView(activity).apply {
+                        isHorizontalScrollBarEnabled=false
+                        addView(quick)
+                    }
+                    body.addView(scroll, LinearLayout.LayoutParams(-1,dp(52)))
+                } else {
+                    sectionTitle(body,"Похожие товары · ${photoMatches.size}")
+                }
                 if(photoDetected.isNotBlank())body.addView(text("Распознано: $photoDetected",13f,true,ink).apply{setPadding(dp(16),0,dp(16),dp(6))})
                 val explanation=photoAnalysisNote.ifBlank{"Показаны возможные совпадения из каталога ОМА. Точный артикул по фотографии не гарантируется."}
-                body.addView(text(explanation,12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
+                if (photoMatches.isNotEmpty()) body.addView(text(explanation,12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
                 photoMatches.forEach{(item,_)->
                     val card=horizontal().apply{setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.WHITE);setOnClickListener{openProduct(item.id)}}
                     card.addView(photo(item,84),LinearLayout.LayoutParams(dp(84),dp(84)))
