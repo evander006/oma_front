@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.15.4-siglip-lan-preview"
+        versionCode = 20
+        versionName = "0.15.5-wifi-verified"
     }
     buildTypes {
         release { isMinifyEnabled = false }
