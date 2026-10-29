@@ -666,6 +666,8 @@ class HomeHub(
                 .put("width_m", room.width)
                 .put("length_m", room.length)
                 .put("height_m", room.height)
+                .put("door_wall", room.doorWall)
+                .put("window_wall", room.windowWall)
                 .put("dimensions_confirmed", room.width > 0 && room.length > 0)
                 .put("products", owned)
                 .put("design_products", drafts))
