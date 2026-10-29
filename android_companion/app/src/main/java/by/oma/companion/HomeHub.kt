@@ -626,21 +626,24 @@ class HomeHub(
             for (index in 0 until purchased.length()) {
                 val purchase = purchased.optJSONObject(index) ?: continue
                 if (places.optString(purchaseKey(home, purchase)) != room.name) continue
-                val placementId = ownedPlacementId(home, purchase)
-                val saved = findPlacement(stored, placementId)
-                if (saved?.optBoolean("removed", false) == true) continue
                 val sku = purchase.optString("sku")
                 val product = findCatalogItem(sku)
-                val item = if (saved != null) JSONObject(saved.toString())
-                    else (product?.let { catalogItemJson(it) } ?: JSONObject())
-                item.put("id", placementId)
-                    .put("placement_id", placementId)
-                    .put("product_id", sku)
-                    .put("name", purchase.optString("title", item.optString("name", "Товар")))
-                    .put("placement_type", "owned")
-                    .put("is_preview", false)
-                    .put("is_demo", purchase.optInt("demo_order", 0) > 0)
-                owned.put(item)
+                val quantity = purchase.optInt("quantity", 1).coerceIn(1, 12)
+                for (copyIndex in 0 until quantity) {
+                    val placementId = ownedPlacementId(home, purchase, copyIndex)
+                    val saved = findPlacement(stored, placementId)
+                    if (saved?.optBoolean("removed", false) == true) continue
+                    val item = if (saved != null) JSONObject(saved.toString())
+                        else (product?.let { catalogItemJson(it) } ?: JSONObject())
+                    item.put("id", placementId)
+                        .put("placement_id", placementId)
+                        .put("product_id", sku)
+                        .put("name", purchase.optString("title", item.optString("name", "Товар")))
+                        .put("placement_type", "owned")
+                        .put("is_preview", false)
+                        .put("is_demo", purchase.optInt("demo_order", 0) > 0)
+                    owned.put(item)
+                }
             }
             val drafts = JSONArray()
             for (index in 0 until stored.length()) {
@@ -761,10 +764,11 @@ class HomeHub(
         return null
     }
 
-    private fun ownedPlacementId(home: Home, item: JSONObject) = "owned:" + purchaseKey(home, item)
+    private fun ownedPlacementId(home: Home, item: JSONObject, copyIndex: Int = 0) =
+        "owned:" + purchaseKey(home, item) + ":copy:" + copyIndex
 
     private fun findPurchaseByPlacementId(home: Home, placementId: String): JSONObject? {
-        val suffix = placementId.removePrefix("owned:")
+        val suffix = placementId.removePrefix("owned:").substringBefore(":copy:")
         val all = purchases()
         for (index in 0 until all.length()) {
             val item = all.optJSONObject(index) ?: continue
