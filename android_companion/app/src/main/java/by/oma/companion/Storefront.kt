@@ -107,6 +107,8 @@ class Storefront(
     private var photoRemoteFinished = false
     private var photoServerConfigurationOpen = false
     private var photoServerConnectionError = ""
+    private var photoServerCheckBusy = false
+    private var photoServerDraftUrl = ""
     private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
@@ -1322,7 +1324,7 @@ class Storefront(
         body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
         body.addView(text("Изображение может отправляться на настроенный демосервер ОМА для уточнения распознавания. Если сервер недоступен, используется анализ на телефоне.", 12f, false, Color.GRAY).apply { setPadding(dp(16),dp(10),dp(16),dp(4)) })
         val sourceDescription = if (api.isLocalPhotoSearchConfigured()) {
-            "Нейропоиск SigLIP2: подключён ПК через Wi-Fi. Выдача ограничена обработанными товарами."
+            "Адрес SigLIP2 сохранён. Нейросеть работает только при доступном ПК в Wi-Fi."
         } else {
             "Нейропоиск ПК не подключён: используется обычное распознавание."
         }
@@ -1349,7 +1351,9 @@ class Storefront(
                 textSize = 14f
                 setTextColor(ink)
                 hint = "http://192.168.1.100:8765"
-                setText(if (api.isLocalPhotoSearchConfigured()) api.photoSearchBaseUrl else "")
+                setText(photoServerDraftUrl.ifBlank {
+                    if (api.isLocalPhotoSearchConfigured()) api.photoSearchBaseUrl else ""
+                })
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or
                     android.text.InputType.TYPE_TEXT_VARIATION_URI
                 background = rounded(Color.WHITE, 8)
@@ -1358,23 +1362,40 @@ class Storefront(
             body.addView(address, LinearLayout.LayoutParams(-1, dp(50)).apply {
                 leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
             })
-            body.addView(outlineButton("Подключить ПК и проверить фото", {
-                runCatching { api.photoSearchBaseUrl = address.text.toString() }
-                    .onSuccess {
-                        photoServerConfigurationOpen = false
-                        Toast.makeText(activity, "Локальный нейропоиск подключён", Toast.LENGTH_SHORT).show()
-                        photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
+            body.addView(outlineButton(
+                if (photoServerCheckBusy) "Проверяем связь с компьютером…"
+                else "Проверить подключение и начать поиск", {
+                if (!photoServerCheckBusy) {
+                    val entered = address.text.toString().trim()
+                    photoServerDraftUrl = entered
+                    photoServerCheckBusy = true
+                    photoServerConnectionError = ""
+                    api.verifyPhotoServer(entered) { result ->
+                        photoServerCheckBusy = false
+                        result.onSuccess { count ->
+                            api.photoSearchBaseUrl = entered
+                            photoServerDraftUrl = ""
+                            photoServerConfigurationOpen = false
+                            photoServerConnectionError = ""
+                            Toast.makeText(activity,
+                                "SigLIP2 доступна: $count товаров в индексе",
+                                Toast.LENGTH_LONG).show()
+                            photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
+                        }.onFailure { error ->
+                            photoServerConnectionError =
+                                "ПК не ответил на проверку: ${error.message ?: "неизвестная ошибка"}. " +
+                                "Проверьте адрес, Wi-Fi и брандмауэр Windows."
+                            navigate("shop:photo")
+                        }
                     }
-                    .onFailure { error ->
-                        Toast.makeText(activity,
-                            error.message ?: "Проверьте локальный IP и порт",
-                            Toast.LENGTH_LONG).show()
-                    }
+                }
             }), LinearLayout.LayoutParams(-1, dp(42)).apply {
                 leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
             })
             body.addView(outlineButton("Вернуться к обычному поиску", {
                 api.resetPhotoSearchBaseUrl()
+                photoServerDraftUrl = ""
+                photoServerConnectionError = ""
                 photoServerConfigurationOpen = false
                 Toast.makeText(activity, "Обычный поиск включён", Toast.LENGTH_SHORT).show()
                 photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
