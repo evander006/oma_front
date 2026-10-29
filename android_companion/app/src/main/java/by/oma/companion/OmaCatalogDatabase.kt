@@ -130,6 +130,27 @@ internal class OmaCatalogDatabase(private val directory: File) {
         categories.mapValues { it.value.toList() }
     }
 
+    /** Resolve ordered backend image-search results against real embedded OMA SKUs.
+     * A single SQL query avoids blocking on one database open for each result.
+     */
+    fun bySkus(skus: List<String>): List<Storefront.Item> = withDb { db ->
+        val requested = skus.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(100)
+        if (requested.isEmpty()) return@withDb emptyList()
+        val placeholders = List(requested.size) { "?" }.joinToString(",")
+        val resolved = HashMap<String, Storefront.Item>()
+        db.rawQuery(
+            "SELECT $columns FROM products WHERE sku IN ($placeholders) " +
+                "AND image_urls IS NOT NULL AND image_urls <> '[]'",
+            requested.toTypedArray()
+        ).use { c ->
+            while (c.moveToNext()) {
+                val item = row(c)
+                resolved[item.id] = item
+            }
+        }
+        requested.mapNotNull(resolved::get)
+    }
+
     fun bySku(sku: String): Storefront.Item? = withDb { db ->
         db.rawQuery(
             "SELECT $columns FROM products WHERE sku = ? " +
