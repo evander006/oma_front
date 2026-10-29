@@ -416,6 +416,7 @@ class HomeHub(
             gravity = Gravity.CENTER
             setBackgroundColor(Color.rgb(235, 240, 242))
         }
+        var sceneLoadFailed = false
         val viewer = WebView(activity).apply {
             contentDescription = "Реалистичный 3D-редактор объекта ${home.name}"
             settings.javaScriptEnabled = true
@@ -442,7 +443,7 @@ class HomeHub(
                 }
 
                 override fun onPageFinished(view: WebView?, url: String?) {
-                    loading.visibility = View.GONE
+                    if (!sceneLoadFailed) loading.visibility = View.GONE
                 }
 
                 override fun onReceivedError(
@@ -452,6 +453,7 @@ class HomeHub(
                 ) {
                     val host = request?.url?.host.orEmpty()
                     if (request?.isForMainFrame == true || host == "cdn.jsdelivr.net") {
+                        sceneLoadFailed = true
                         loading.text = "Не удалось загрузить 3D-сцену. Проверьте интернет и нажмите здесь, чтобы повторить."
                         loading.visibility = View.VISIBLE
                     }
@@ -469,6 +471,8 @@ class HomeHub(
             }
         }
         loading.setOnClickListener {
+            sceneLoadFailed = false
+            loading.text = "Загружаем интерактивную 3D-комнату…"
             loading.visibility = View.VISIBLE
             viewer.reload()
         }
