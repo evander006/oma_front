@@ -105,6 +105,7 @@ class Storefront(
     private var photoRemoteSucceeded = false
     private var photoLocalFinished = false
     private var photoRemoteFinished = false
+    private var photoServerConfigurationOpen = false
     private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
@@ -1306,6 +1307,62 @@ class Storefront(
         }
         body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
         body.addView(text("Изображение может отправляться на настроенный демосервер ОМА для уточнения распознавания. Если сервер недоступен, используется анализ на телефоне.", 12f, false, Color.GRAY).apply { setPadding(dp(16),dp(10),dp(16),dp(4)) })
+        val sourceDescription = if (api.isLocalPhotoSearchConfigured()) {
+            "Нейропоиск SigLIP2: подключён ПК через Wi-Fi. Выдача ограничена обработанными товарами."
+        } else {
+            "Нейропоиск ПК не подключён: используется обычное распознавание."
+        }
+        body.addView(text(sourceDescription, 12.5f, false, if (api.isLocalPhotoSearchConfigured()) blue else Color.GRAY).apply {
+            setPadding(dp(16), dp(6), dp(16), dp(5))
+        })
+        body.addView(outlineButton(
+            if (photoServerConfigurationOpen) "Скрыть настройки нейропоиска"
+            else "Настроить нейропоиск на ПК"
+        , {
+            photoServerConfigurationOpen = !photoServerConfigurationOpen
+            navigate("shop:photo")
+        }), LinearLayout.LayoutParams(-1, dp(38)).apply {
+            leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
+        })
+        if (photoServerConfigurationOpen) {
+            val address = EditText(activity).apply {
+                setSingleLine(true)
+                textSize = 14f
+                setTextColor(ink)
+                hint = "http://192.168.1.100:8765"
+                setText(if (api.isLocalPhotoSearchConfigured()) api.photoSearchBaseUrl else "")
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI
+                background = rounded(Color.WHITE, 8)
+                setPadding(dp(12), 0, dp(12), 0)
+            }
+            body.addView(address, LinearLayout.LayoutParams(-1, dp(50)).apply {
+                leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
+            })
+            body.addView(outlineButton("Подключить ПК и проверить фото", {
+                runCatching { api.photoSearchBaseUrl = address.text.toString() }
+                    .onSuccess {
+                        photoServerConfigurationOpen = false
+                        Toast.makeText(activity, "Локальный нейропоиск подключён", Toast.LENGTH_SHORT).show()
+                        photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
+                    }
+                    .onFailure { error ->
+                        Toast.makeText(activity,
+                            error.message ?: "Проверьте локальный IP и порт",
+                            Toast.LENGTH_LONG).show()
+                    }
+            }), LinearLayout.LayoutParams(-1, dp(42)).apply {
+                leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
+            })
+            body.addView(outlineButton("Вернуться к обычному поиску", {
+                api.resetPhotoSearchBaseUrl()
+                photoServerConfigurationOpen = false
+                Toast.makeText(activity, "Обычный поиск включён", Toast.LENGTH_SHORT).show()
+                photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
+            }), LinearLayout.LayoutParams(-1, dp(42)).apply {
+                leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12)
+            })
+        }
         val hint = EditText(activity).apply {
             setSingleLine(true)
             setTextColor(ink);textSize = 15f
