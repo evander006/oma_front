@@ -3,6 +3,7 @@ package by.oma.companion
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -11,11 +12,20 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.text.InputType
+import android.util.Base64
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -42,6 +52,7 @@ class HomeHub(
     private var previewBitmap: Bitmap? = null
     private var pageIndex = 0
     private var zoom = 1f
+    private var roomWebView: WebView? = null
 
     private data class Room(
         val name: String, val area: Double, val width: Double = 0.0,
@@ -167,6 +178,7 @@ class HomeHub(
 
     fun render(screen: String, body: LinearLayout) {
         if (screen != "home:preview") closePreview()
+        if (screen != "home:3d") closeRoomEditor()
         when (screen) {
             "home:add" -> createHome(body)
             "home:passport" -> passport(body)
@@ -393,60 +405,442 @@ class HomeHub(
     }
 
     private fun placeholder3d(body: LinearLayout) {
+        closeRoomEditor()
         val home = selectedHome()
-        heading(body, "3D-модель")
+        heading(body, "3D-интерьер")
         if (home == null) {
             note(body, "Сначала добавьте объект.")
             button(body, "Добавить объект") { navigate("home:add") }
             return
         }
-        note(body, "Объект «${home.name}». Выберите комнату сверху. Вращение и наклон — одним пальцем, масштаб — двумя; двойное касание возвращает лучший обзор.")
-        val menu=LinearLayout(activity).apply {orientation=LinearLayout.HORIZONTAL;setPadding(dp(8),dp(4),dp(8),dp(10))}
-        val viewer=Room3DView(activity).apply {
-            contentDescription="Интерактивная трёхмерная модель объекта ${home.name}"
+        note(body, "Объект «${home.name}». Добавляйте товары из полного каталога ОМА, перемещайте и поворачивайте их. Неприобретённые предметы сохраняются как дизайн-проект и не считаются покупкой.")
+        val frame = FrameLayout(activity)
+        val loading = text("Загружаем интерактивную 3D-комнату…", 13f, false, Color.rgb(78, 99, 112)).apply {
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.rgb(235, 240, 242))
         }
-        val bought=purchases()
-        val places=locations()
-        fun productsIn(room:Room):List<Room3DView.Product>{
-            val result=mutableListOf<Room3DView.Product>()
-            for(i in 0 until bought.length()){
-                val item=bought.optJSONObject(i)?:continue
-                if(places.optString(purchaseKey(home,item))==room.name){
-                    result+=Room3DView.Product(item.optString("title","Товар"),item.optInt("quantity",1),item.optString("sku"))
+        var sceneLoadFailed = false
+        val viewer = WebView(activity).apply {
+            contentDescription = "Реалистичный 3D-редактор объекта ${home.name}"
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.loadWithOverviewMode = true
+            settings.useWideViewPort = true
+            settings.cacheMode = WebSettings.LOAD_DEFAULT
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            isVerticalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = false
+            isNestedScrollingEnabled = false
+            webChromeClient = WebChromeClient()
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?
+                ): Boolean {
+                    val target = request?.url ?: return true
+                    // Only the bundled editor's isolated origin may stay in this WebView.
+                    // External links must never inherit the native JavaScript bridge.
+                    return target.host != "oma-room-editor.invalid"
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    if (!sceneLoadFailed) loading.visibility = View.GONE
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    val host = request?.url?.host.orEmpty()
+                    if (request?.isForMainFrame == true || host == "cdn.jsdelivr.net") {
+                        sceneLoadFailed = true
+                        loading.text = "Не удалось загрузить 3D-сцену. Проверьте интернет и нажмите здесь, чтобы повторить."
+                        loading.visibility = View.VISIBLE
+                    }
                 }
             }
-            return result
-        }
-        fun select(room:Room){
-            viewer.roomName=room.name
-            viewer.roomArea=room.area
-            viewer.roomWidth=room.width
-            viewer.roomLength=room.length
-            viewer.roomHeight=room.height
-            viewer.doorWall=room.doorWall
-            viewer.windowWall=room.windowWall
-            viewer.products=productsIn(room)
-            for(i in 0 until menu.childCount){
-                val child=menu.getChildAt(i) as? TextView ?: continue
-                child.setTextColor(if(child.text==room.name)Color.WHITE else ink)
-                child.background=Style.bg(if(child.text==room.name)blue else Color.WHITE,6f,if(child.text==room.name)null else Style.BORDER)
+            addJavascriptInterface(RoomSceneBridge(home.id), "OmaRoomBridge")
+            setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE ->
+                        view.parent?.requestDisallowInterceptTouchEvent(true)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                        view.parent?.requestDisallowInterceptTouchEvent(false)
+                }
+                false
             }
         }
-        home.rooms.forEach { room ->
-            menu.addView(text(room.name,13.5f,true).apply {
-                gravity=Gravity.CENTER;maxLines=1;setPadding(dp(16),0,dp(16),0);setOnClickListener{select(room)}
-            },LinearLayout.LayoutParams(-2,dp(40)).apply{rightMargin=dp(8)})
+        loading.setOnClickListener {
+            sceneLoadFailed = false
+            loading.text = "Загружаем интерактивную 3D-комнату…"
+            loading.visibility = View.VISIBLE
+            viewer.reload()
         }
-        val roomScroll=android.widget.HorizontalScrollView(activity).apply {
-            isHorizontalScrollBarEnabled=false
-            addView(menu,android.widget.FrameLayout.LayoutParams(-2,-2))
-        }
-        body.addView(roomScroll,LinearLayout.LayoutParams(-1,-2))
-        body.addView(viewer,LinearLayout.LayoutParams(-1,dp(540)).apply{leftMargin=dp(8);rightMargin=dp(8);bottomMargin=dp(14)})
-        home.rooms.firstOrNull()?.let{select(it)}
-        if(home.rooms.isEmpty()) note(body,"В паспорте нет помещений. Создайте объект заново с перечнем комнат.")
-        note(body,"OpenGL-сцена использует реальные ширину, длину, высоту и стены проёмов из паспорта. Освещение, масштаб напольных линий и расстановка покупок помогают оценить пропорции. Если размеры не заполнены, они приближённо вычисляются из площади; сложная форма комнаты требует обмерного плана.")
+        frame.addView(viewer, FrameLayout.LayoutParams(-1, -1))
+        frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
+        roomWebView = viewer
+        body.addView(frame, LinearLayout.LayoutParams(-1, dp(610)).apply {
+            leftMargin = dp(8); rightMargin = dp(8); bottomMargin = dp(14)
+        })
+        val sceneHtml = activity.assets.open("scene.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+        // Use an isolated, non-routable origin. The editor is bundled locally, so
+        // the native JavaScript bridge is never exposed to a remotely served HTML page.
+        viewer.loadDataWithBaseURL(
+            "https://oma-room-editor.invalid/",
+            sceneHtml,
+            "text/html",
+            "UTF-8",
+            null
+        )
+        note(body, "Мебель из каталога можно примерить до покупки. Если точная 3D-модель производителя отсутствует, используется объёмная модель по категории товара; размеры комнаты берутся из паспорта объекта.")
     }
+
+    fun closeRoomEditor() {
+        val viewer = roomWebView ?: return
+        (viewer.parent as? ViewGroup)?.removeView(viewer)
+        viewer.stopLoading()
+        viewer.removeJavascriptInterface("OmaRoomBridge")
+        viewer.destroy()
+        roomWebView = null
+    }
+
+    inner class RoomSceneBridge(private val homeId: String) {
+        @JavascriptInterface
+        fun getRoomScene(): String = runCatching {
+            buildRoomScene(homeId).toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось загрузить объект") }
+
+        @JavascriptInterface
+        fun searchCatalog(query: String, page: Int, limit: Int): String = runCatching {
+            val directory = catalogDirectory()
+            if (!File(directory, "catalog.db").isFile) {
+                return@runCatching JSONObject().put(
+                    "error", "Встроенный каталог ОМА ещё загружается. Закройте и снова откройте 3D-редактор через несколько секунд."
+                ).toString()
+            }
+            val safeLimit = limit.coerceIn(1, 100)
+            val result = OmaCatalogDatabase(directory).page(
+                search = query,
+                limit = safeLimit,
+                offset = (page - 1).coerceAtLeast(0) * safeLimit
+            )
+            val items = JSONArray()
+            result.records.forEach { items.put(catalogItemJson(it)) }
+            JSONObject().put("items", items).put("total", result.total).toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось открыть каталог ОМА") }
+
+        @JavascriptInterface
+        fun getCatalogImage(sku: String): String = runCatching {
+            val product = findCatalogItem(sku)
+                ?: return@runCatching JSONObject().put("error", "Изображение товара не найдено").toString()
+            val raw = product.image
+            if (raw.startsWith("https://") || raw.startsWith("http://")) {
+                return@runCatching JSONObject().put("url", raw).toString()
+            }
+            val directory = catalogDirectory().canonicalFile
+            val file = File(raw).canonicalFile
+            if (!file.isFile || !file.path.startsWith(directory.path + File.separator) || file.length() > 8L * 1024L * 1024L) {
+                return@runCatching JSONObject().put("error", "Локальное изображение недоступно").toString()
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.path, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 900) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: return@runCatching JSONObject().put("error", "Не удалось прочитать изображение").toString()
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+            bitmap.recycle()
+            JSONObject().put(
+                "data_url",
+                "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            ).toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось загрузить изображение товара") }
+
+        @JavascriptInterface
+        fun addPlacement(
+            roomId: String,
+            productId: String,
+            x: Double,
+            y: Double,
+            z: Double,
+            rotation: Double
+        ): String = runCatching {
+            val home = findHome() ?: return@runCatching bridgeError("Объект больше не найден")
+            val room = home.rooms.firstOrNull { it.name == roomId }
+                ?: return@runCatching bridgeError("Комната больше не найдена")
+            val product = findCatalogItem(productId)
+                ?: return@runCatching bridgeError("Товар не найден во встроенном каталоге ОМА")
+            val stored = roomPlacements(home.id, room.name)
+            val purchased = purchaseInRoom(home, room, productId)
+            val ownedId = purchased?.let { ownedPlacementId(home, it) }
+            val ownedRecord = ownedId?.let { findPlacement(stored, it) }
+            // Restore a deliberately hidden owned item; otherwise a second tap adds a new instance.
+            val restoreOwned = purchased != null && ownedRecord?.optBoolean("removed", false) == true
+            val placementType = if (restoreOwned) "owned" else "preview"
+            val placementId = if (restoreOwned) ownedId!! else "draft:" + productId + ":" + UUID.randomUUID().toString()
+            val item = if (restoreOwned && ownedRecord != null) JSONObject(ownedRecord.toString())
+                else catalogItemJson(product)
+            item.put("id", placementId)
+                .put("placement_id", placementId)
+                .put("product_id", productId)
+                .put("name", product.title)
+                .put("placement_type", placementType)
+                .put("is_preview", placementType == "preview")
+                .put("is_demo", purchased?.optInt("demo_order", 0)?.let { it > 0 } ?: false)
+                .put("removed", false)
+                .put("position", positionJson(x, y, z, rotation))
+            if (placementType == "preview") item.put("purchase_status", "design_preview")
+            savePlacementRecord(home.id, room.name, item)
+            JSONObject()
+                .put("id", placementId)
+                .put("room_id", roomId)
+                .put("product_id", productId)
+                .put("name", product.title)
+                .put("placement_type", placementType)
+                .put("is_preview", placementType == "preview")
+                .put("is_demo", purchased?.optInt("demo_order", 0)?.let { it > 0 } ?: false)
+                .toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось добавить предмет") }
+
+        @JavascriptInterface
+        fun updatePlacement(
+            roomId: String,
+            placementId: String,
+            productId: String,
+            x: Double,
+            y: Double,
+            z: Double,
+            rotation: Double
+        ): String = runCatching {
+            val home = findHome() ?: return@runCatching bridgeError("Объект больше не найден")
+            val room = home.rooms.firstOrNull { it.name == roomId }
+                ?: return@runCatching bridgeError("Комната больше не найдена")
+            val stored = roomPlacements(home.id, room.name)
+            val record = findPlacement(stored, placementId) ?: run {
+                val product = findCatalogItem(productId)
+                    ?: return@runCatching bridgeError("Не удалось восстановить товар")
+                val type = if (placementId.startsWith("owned:")) "owned" else "preview"
+                catalogItemJson(product)
+                    .put("id", placementId)
+                    .put("placement_id", placementId)
+                    .put("product_id", productId)
+                    .put("name", product.title)
+                    .put("placement_type", type)
+                    .put("is_preview", type == "preview")
+            }
+            record.put("position", positionJson(x, y, z, rotation)).put("removed", false)
+            savePlacementRecord(home.id, room.name, record)
+            JSONObject().put("ok", true).toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось сохранить расстановку") }
+
+        @JavascriptInterface
+        fun deletePlacement(roomId: String, placementId: String): String = runCatching {
+            val home = findHome() ?: return@runCatching bridgeError("Объект больше не найден")
+            val room = home.rooms.firstOrNull { it.name == roomId }
+                ?: return@runCatching bridgeError("Комната больше не найдена")
+            val stored = roomPlacements(home.id, room.name)
+            if (placementId.startsWith("owned:")) {
+                val record = findPlacement(stored, placementId) ?: run {
+                    val purchase = findPurchaseByPlacementId(home, placementId)
+                        ?: return@runCatching JSONObject().put("deleted", true).toString()
+                    val product = findCatalogItem(purchase.optString("sku"))
+                    (product?.let { catalogItemJson(it) } ?: JSONObject())
+                        .put("id", placementId)
+                        .put("placement_id", placementId)
+                        .put("product_id", purchase.optString("sku"))
+                        .put("name", purchase.optString("title", "Товар"))
+                        .put("placement_type", "owned")
+                        .put("is_preview", false)
+                }
+                record.put("removed", true)
+                savePlacementRecord(home.id, room.name, record)
+            } else {
+                val remaining = JSONArray()
+                for (index in 0 until stored.length()) {
+                    val record = stored.optJSONObject(index) ?: continue
+                    if (record.optString("id", record.optString("placement_id")) != placementId) remaining.put(record)
+                }
+                saveRoomPlacements(home.id, room.name, remaining)
+            }
+            JSONObject().put("deleted", true).toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось убрать предмет") }
+
+        private fun findHome(): Home? = homes().firstOrNull { it.id == homeId }
+    }
+
+    private fun buildRoomScene(homeId: String): JSONObject {
+        val home = homes().firstOrNull { it.id == homeId }
+            ?: return JSONObject().put("name", "Моё жильё").put("rooms", JSONArray())
+        val purchased = purchases()
+        val places = locations()
+        val roomArray = JSONArray()
+        home.rooms.forEach { room ->
+            val stored = roomPlacements(home.id, room.name)
+            val owned = JSONArray()
+            for (index in 0 until purchased.length()) {
+                val purchase = purchased.optJSONObject(index) ?: continue
+                if (places.optString(purchaseKey(home, purchase)) != room.name) continue
+                val sku = purchase.optString("sku")
+                val product = findCatalogItem(sku)
+                val quantity = purchase.optInt("quantity", 1).coerceIn(1, 12)
+                for (copyIndex in 0 until quantity) {
+                    val placementId = ownedPlacementId(home, purchase, copyIndex)
+                    val saved = findPlacement(stored, placementId)
+                    if (saved?.optBoolean("removed", false) == true) continue
+                    val item = if (saved != null) JSONObject(saved.toString())
+                        else (product?.let { catalogItemJson(it) } ?: JSONObject())
+                    item.put("id", placementId)
+                        .put("placement_id", placementId)
+                        .put("product_id", sku)
+                        .put("name", purchase.optString("title", item.optString("name", "Товар")))
+                        .put("placement_type", "owned")
+                        .put("is_preview", false)
+                        .put("is_demo", purchase.optInt("demo_order", 0) > 0)
+                    owned.put(item)
+                }
+            }
+            val drafts = JSONArray()
+            for (index in 0 until stored.length()) {
+                val saved = stored.optJSONObject(index) ?: continue
+                if (saved.optString("placement_type", "preview") != "preview" || saved.optBoolean("removed", false)) continue
+                val item = JSONObject(saved.toString())
+                item.put("id", item.optString("id", item.optString("placement_id")))
+                    .put("placement_id", item.optString("placement_id", item.optString("id")))
+                    .put("is_preview", true)
+                    .put("placement_type", "preview")
+                    .put("purchase_status", "design_preview")
+                drafts.put(item)
+            }
+            roomArray.put(JSONObject()
+                .put("id", room.name)
+                .put("name", room.name)
+                .put("room_type", roomType(room.name))
+                .put("description", "")
+                .put("style_preference", "")
+                .put("wall_material", home.walls)
+                .put("floor_material", "")
+                .put("ceiling_material", home.ceiling)
+                .put("width_m", room.width)
+                .put("length_m", room.length)
+                .put("height_m", room.height)
+                .put("door_wall", room.doorWall)
+                .put("window_wall", room.windowWall)
+                .put("dimensions_confirmed", room.width > 0 && room.length > 0)
+                .put("products", owned)
+                .put("design_products", drafts))
+        }
+        return JSONObject().put("id", home.id).put("name", home.name).put("rooms", roomArray)
+    }
+
+    private fun roomType(name: String): String {
+        val value = name.lowercase(Locale("ru", "RU"))
+        return when {
+            "кух" in value -> "kitchen"
+            "ванн" in value || "туалет" in value || "сануз" in value -> "bathroom"
+            "спаль" in value || "детск" in value -> "bedroom"
+            "гостин" in value || "зал" in value -> "living_room"
+            "корид" in value || "прихож" in value -> "hallway"
+            else -> "room"
+        }
+    }
+
+    private fun catalogDirectory() = File(activity.filesDir, "oma_catalog")
+
+    private fun findCatalogItem(sku: String): Storefront.Item? = runCatching {
+        val directory = catalogDirectory()
+        if (!File(directory, "catalog.db").isFile) null
+        else OmaCatalogDatabase(directory).bySku(sku)
+    }.getOrNull()
+
+    private fun catalogItemJson(item: Storefront.Item): JSONObject {
+        val image = item.image.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty()
+        val categoryPath = listOf(item.category, item.subcategory).filter { it.isNotBlank() }.joinToString(" / ")
+        return JSONObject()
+            .put("id", item.id)
+            .put("name", item.title)
+            .put("category_id", categoryPath)
+            .put("category_name", item.category)
+            .put("category_path", categoryPath)
+            .put("subcategory", item.subcategory)
+            .put("brand", item.brand)
+            .put("price", item.price ?: JSONObject.NULL)
+            .put("currency", "BYN")
+            .put("primary_image_url", image)
+            .put("image_url", image)
+    }
+
+    private fun roomPlacementKey(homeId: String, roomId: String) = "$homeId|$roomId"
+
+    private fun roomPlacements(homeId: String, roomId: String): JSONArray {
+        val root = runCatching {
+            JSONObject(prefs.getString("room_design_placements", "{}") ?: "{}")
+        }.getOrDefault(JSONObject())
+        return root.optJSONArray(roomPlacementKey(homeId, roomId))?.let { JSONArray(it.toString()) } ?: JSONArray()
+    }
+
+    private fun saveRoomPlacements(homeId: String, roomId: String, items: JSONArray) {
+        val root = runCatching {
+            JSONObject(prefs.getString("room_design_placements", "{}") ?: "{}")
+        }.getOrDefault(JSONObject())
+        root.put(roomPlacementKey(homeId, roomId), items)
+        prefs.edit().putString("room_design_placements", root.toString()).apply()
+    }
+
+    private fun savePlacementRecord(homeId: String, roomId: String, item: JSONObject) {
+        val placementId = item.optString("id", item.optString("placement_id"))
+        item.put("id", placementId).put("placement_id", placementId)
+        val current = roomPlacements(homeId, roomId)
+        val next = JSONArray()
+        var found = false
+        for (index in 0 until current.length()) {
+            val record = current.optJSONObject(index) ?: continue
+            if (record.optString("id", record.optString("placement_id")) == placementId) {
+                next.put(item); found = true
+            } else next.put(record)
+        }
+        if (!found) next.put(item)
+        saveRoomPlacements(homeId, roomId, next)
+    }
+
+    private fun findPlacement(items: JSONArray, placementId: String): JSONObject? {
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index) ?: continue
+            if (item.optString("id", item.optString("placement_id")) == placementId) return item
+        }
+        return null
+    }
+
+    private fun positionJson(x: Double, y: Double, z: Double, rotation: Double) = JSONObject()
+        .put("x", x).put("y", y).put("z", z).put("rotation_y", rotation)
+
+    private fun purchaseInRoom(home: Home, room: Room, sku: String): JSONObject? {
+        val all = purchases()
+        val places = locations()
+        for (index in 0 until all.length()) {
+            val item = all.optJSONObject(index) ?: continue
+            if (item.optString("sku") == sku && places.optString(purchaseKey(home, item)) == room.name) return item
+        }
+        return null
+    }
+
+    private fun ownedPlacementId(home: Home, item: JSONObject, copyIndex: Int = 0) =
+        "owned:" + purchaseKey(home, item) + ":copy:" + copyIndex
+
+    private fun findPurchaseByPlacementId(home: Home, placementId: String): JSONObject? {
+        val suffix = placementId.removePrefix("owned:").substringBefore(":copy:")
+        val all = purchases()
+        for (index in 0 until all.length()) {
+            val item = all.optJSONObject(index) ?: continue
+            if (purchaseKey(home, item) == suffix) return item
+        }
+        return null
+    }
+
+    private fun bridgeError(message: String) = JSONObject().put("error", message).toString()
 
     private fun locations(): JSONObject = runCatching {
         JSONObject(prefs.getString("locations", "{}") ?: "{}")
