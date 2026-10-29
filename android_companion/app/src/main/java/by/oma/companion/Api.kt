@@ -46,6 +46,38 @@ class Api(private val context: Context) {
         }
     }
 
+    /** Verify that the laptop actually answers, before claiming Wi-Fi is connected. */
+    fun verifyPhotoServer(rawUrl: String, callback: (Result<Int>) -> Unit) {
+        executor.execute {
+            val result = runCatching {
+                val host = PhotoServerAddress.normalize(rawUrl)
+                val conn = URL("$host/api/v1/visual-search/status").openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "GET"
+                    conn.connectTimeout = 5_000
+                    conn.readTimeout = 8_000
+                    conn.setRequestProperty("Accept", "application/json")
+                    val code = conn.responseCode
+                    check(code in 200..299) { "Сервер вернул HTTP $code" }
+                    val status = JSONObject(conn.inputStream.bufferedReader(Charsets.UTF_8)
+                        .use { it.readText() })
+                    check(status.optBoolean("ready", false)) {
+                        "Сервер ещё не готов к поиску по фото"
+                    }
+                    check(status.optString("method") == "siglip2_catalog_embeddings") {
+                        "По этому адресу не найдена нейросеть SigLIP2"
+                    }
+                    val count = status.optInt("indexed_products", 0)
+                    check(count > 0) { "В индексе нет обработанных товаров" }
+                    count
+                } finally {
+                    conn.disconnect()
+                }
+            }
+            android.os.Handler(context.mainLooper).post { callback(result) }
+        }
+    }
+
     /** Upload a catalogue photo without blocking the UI thread. */
     fun visualSearch(
         bytes: ByteArray,
