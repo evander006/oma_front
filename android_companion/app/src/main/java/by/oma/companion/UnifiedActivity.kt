@@ -34,7 +34,7 @@ class UnifiedActivity : Activity() {
     private val shop by lazy { Storefront(this, { go(it) }, { tabTo(it) }, { render() },
         { openHomeHub() }, { openCatalogPhotoPicker() }, { screen == "shop:photo" },
         { route -> launchStoryFeature(route) }) }
-    private val homeHub by lazy { HomeHub(this, { go(it) }, { shop.confirmedPurchases() }) }
+    private val homeHub by lazy { HomeHub(this, api, { go(it) }, { shop.confirmedPurchases() }) }
     private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
@@ -87,7 +87,7 @@ class UnifiedActivity : Activity() {
         out.putInt("introPage", launchIntro?.currentPage ?: introPage)
         super.onSaveInstanceState(out)
     }
-    override fun onDestroy() { web?.destroy(); homeHub.closePreview(); api.close(); super.onDestroy() }
+    override fun onDestroy() { web?.destroy(); homeHub.closePreview(); homeHub.closeRoomEditor(); api.close(); super.onDestroy() }
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (introActive && launchIntro?.onTouchEvent(event) == true) return true
         return super.dispatchTouchEvent(event)
