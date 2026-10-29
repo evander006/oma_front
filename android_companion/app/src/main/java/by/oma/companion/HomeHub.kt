@@ -516,11 +516,16 @@ class HomeHub(
                 ?: return@runCatching bridgeError("Комната больше не найдена")
             val product = findCatalogItem(productId)
                 ?: return@runCatching bridgeError("Товар не найден во встроенном каталоге ОМА")
+            val stored = roomPlacements(home.id, room.name)
             val purchased = purchaseInRoom(home, room, productId)
-            val placementType = if (purchased != null) "owned" else "preview"
-            val placementId = if (purchased != null) ownedPlacementId(home, purchased) else "draft:$productId"
-            val item = findPlacement(roomPlacements(home.id, room.name), placementId)
-                ?: catalogItemJson(product)
+            val ownedId = purchased?.let { ownedPlacementId(home, it) }
+            val ownedRecord = ownedId?.let { findPlacement(stored, it) }
+            // Restore a deliberately hidden owned item; otherwise a second tap adds a new instance.
+            val restoreOwned = purchased != null && ownedRecord?.optBoolean("removed", false) == true
+            val placementType = if (restoreOwned) "owned" else "preview"
+            val placementId = if (restoreOwned) ownedId!! else "draft:" + productId + ":" + UUID.randomUUID().toString()
+            val item = if (restoreOwned && ownedRecord != null) JSONObject(ownedRecord.toString())
+                else catalogItemJson(product)
             item.put("id", placementId)
                 .put("placement_id", placementId)
                 .put("product_id", productId)
