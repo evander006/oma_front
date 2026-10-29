@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.15.2-embedded-catalog"
+        versionCode = 18
+        versionName = "0.16.0-3d-room-editor"
     }
     buildTypes {
         release { isMinifyEnabled = false }
