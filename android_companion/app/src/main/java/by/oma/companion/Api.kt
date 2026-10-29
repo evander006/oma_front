@@ -15,6 +15,23 @@ class Api(private val context: Context) {
         get() = preferences.getString("backend_url", "https://oma-be-85l2.onrender.com")!!.trimEnd('/')
         set(value) { preferences.edit().putString("backend_url", value.trim().trimEnd('/')).apply() }
 
+    /** Separate optional photo-search service; other ecosystem API calls stay unchanged. */
+    var photoSearchBaseUrl: String
+        get() = preferences.getString("photo_search_url", null)?.takeIf { it.isNotBlank() }
+            ?: baseUrl
+        set(value) {
+            preferences.edit()
+                .putString("photo_search_url", PhotoServerAddress.normalize(value))
+                .apply()
+        }
+
+    fun resetPhotoSearchBaseUrl() {
+        preferences.edit().remove("photo_search_url").apply()
+    }
+
+    fun isLocalPhotoSearchConfigured(): Boolean =
+        preferences.contains("photo_search_url")
+
     /** Make HTTP requests off the UI thread, then deliver results to the main thread. */
     fun request(
         method: String,
@@ -46,8 +63,7 @@ class Api(private val context: Context) {
         require(bytes.size <= 8 * 1024 * 1024) { "Фото больше 8 МБ" }
         val safeMime = mimeType.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") }
             ?: "image/jpeg"
-        val host = baseUrl
-        require(host.startsWith("https://")) { "Для демо-сервера нужен HTTPS URL" }
+        val host = PhotoServerAddress.normalize(photoSearchBaseUrl)
         val boundary = "OMAVisualSearch${System.nanoTime()}"
         val conn = URL("$host/api/v1/visual-search").openConnection() as HttpURLConnection
         try {
