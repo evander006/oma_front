@@ -33,7 +33,7 @@
 - Комнаты, купленные товары и каталог читаются из локального демо-профиля и встроенной SQLite-базы ОМА (134 266 позиций); искать товары можно по названию, категории, бренду и артикулу.
 - Предварительная расстановка сохраняется отдельно от демо-покупок. Можно добавить несколько экземпляров одного товара, перемещать их, поворачивать и убирать; удаление предмета не отменяет заказ.
 - Сцена использует физически корректные материалы, текстуры дерева/плитки/штукатурки, окружение, мягкие тени, оконные рамы, шторы и более детальные модели по категориям. Если нет точной GLB-модели производителя, форма остаётся процедурным приближением.
-- Для загрузки HTML-сцены нужен backend с маршрутом `/api/v1/scene/editor` и актуальным `scene.html`. Каталог и черновая расстановка в Android-демо не отправляются в официальный аккаунт ОМА.
+- HTML редактора включён в APK и не зависит от наличия маршрута `/api/v1/scene/editor` на сервере. Для Three.js нужен интернет (модули загружаются с jsDelivr); каталог и черновая расстановка Android-демо остаются локальными и не отправляются в официальный аккаунт ОМА. При изменении сцены синхронизируйте `backend/app/static/scene.html` с `android_companion/app/src/main/assets/scene.html`.
 
 ## Backend
 
@@ -57,10 +57,9 @@ gradle -p android_companion :app:assembleDebug
 ```
 APK: `android_companion/app/build/outputs/apk/debug/app-debug.apk`.
 
-В GitHub Actions есть workflow «Build OMA Digital Home unified demo APK»,
-который собирает ZIP artifact `oma-unified-demo-debug-apk`.
+GitHub Actions workflow «Android companion APK» собирает APK и публикует artifact `oma-android-3d-room-editor` (если workflow запущен и сборка прошла успешно).
 
-Package ID: `by.oma.digitalhome.demo`, Android 8.0+. Версия `0.12.0-photo-pdf-fix`.
+Package ID: `by.oma.digitalhome.demo`, Android 8.0+. Версия `0.16.0-3d-room-editor`.
 
 Внимание: APK от разных запусков GitHub Actions могут быть подписаны разными
 отладочными ключами. Если обновление не устанавливается, удалите предыдущую
