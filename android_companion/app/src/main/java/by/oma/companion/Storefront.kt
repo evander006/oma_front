@@ -102,6 +102,7 @@ class Storefront(
     private var photoAnalysisNote = ""
     private var photoDetected = ""
     private var photoSearchToken = 0
+    private var photoRemoteSucceeded = false
     private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
@@ -1023,6 +1024,7 @@ class Storefront(
         val requestId = ++photoSearchToken
         photoUri = uri; photoBusy = true; photoError = ""; photoMatches = emptyList()
         photoAnalysisNote = ""; photoDetected = ""
+        photoRemoteSucceeded = false
         photoMatchLabel = "Релевантность"
         navigate("shop:photo")
 
@@ -1039,13 +1041,18 @@ class Storefront(
                             val result = runCatching { parseRemoteMatches(raw) }.getOrNull()
                             ui.post {
                                 if (requestId != photoSearchToken || !isPhotoSearchVisible() || result == null) return@post
-                                val (found, terms, note) = result
-                                if (terms.isNotEmpty() && found.isNotEmpty()) {
+                                val (found, terms, note, indexed) = result
+                                // Trust resolved server SKUs. Do not turn accurate image
+                                // hits back into an unrelated fuzzy name search.
+                                if (found.isNotEmpty() || indexed) {
+                                    photoRemoteSucceeded = true
                                     photoMatches = found
-                                    photoDetected = terms.joinToString(", ")
-                                    photoAnalysisNote = note +
-                                        " Результаты сопоставлены со всем импортированным каталогом ОМА."
-                                    photoMatchLabel = "Релевантность"
+                                    if (terms.isNotEmpty()) photoDetected = terms.joinToString(", ")
+                                    photoAnalysisNote = note.ifBlank {
+                                        if (indexed) "Товары сопоставлены с изображениями каталога ОМА."
+                                        else "Сервер уточнил поиск по фотографии."
+                                    }
+                                    photoMatchLabel = "Похожие товары"
                                     photoBusy = false; photoError = ""
                                     navigate("shop:photo")
                                 }
@@ -1170,20 +1177,43 @@ class Storefront(
     }
 
     private data class RemotePhotoResult(
-        val items: List<Pair<Item, Int>>, val terms: List<String>, val note: String
+        val items: List<Pair<Item, Int>>,
+        val terms: List<String>,
+        val note: String,
+        val indexed: Boolean
     )
 
     private fun parseRemoteMatches(raw: String): RemotePhotoResult {
         val response = JSONObject(raw)
         val detected = response.optJSONArray("detected_objects") ?: JSONArray()
-        val terms = (0 until detected.length()).map { detected.optString(it) }
+        val terms = (0 until detected.length()).map { detected.optString(it).trim() }
             .filter { it.isNotBlank() }.take(5)
-        // Server may host a small demo catalog. Its SKUs are not a full OMA index.
-        return RemotePhotoResult(
-            if (terms.isNotEmpty()) searchLocalTerms(terms) else emptyList(),
-            terms,
-            response.optString("note", "Сервер распознал предметы на фотографии.")
-        )
+        val indexed = response.optString("method") == "siglip2_catalog_embeddings"
+        val returned = response.optJSONArray("matches") ?: JSONArray()
+        val orderedSkus = (0 until minOf(returned.length(), 30)).mapNotNull { index ->
+            val row = returned.optJSONObject(index) ?: return@mapNotNull null
+            row.optString("sku").trim().ifBlank { null }
+        }.distinct()
+
+        // The backend may contain only a demo catalogue. Never show items from
+        // it unless the SKU really exists in the 134k-item embedded OMA database.
+        val available = if (catalogDb != null) {
+            runCatching { catalogDb!!.bySkus(orderedSkus) }.getOrDefault(emptyList())
+        } else products.filter { it.id in orderedSkus }
+        val bySku = available.associateBy { it.id }
+        val verified = orderedSkus.mapIndexedNotNull { rank, sku ->
+            bySku[sku]?.let { it to (100 - rank).coerceAtLeast(1) }
+        }
+        val found = if (verified.isNotEmpty() || indexed) verified
+            else if (terms.isNotEmpty()) searchLocalTerms(terms)
+            else emptyList()
+        val note = response.optString("note").ifBlank {
+            if (indexed) "Визуальное сравнение с товарами из индексированной выгрузки ОМА."
+            else "Сервер распознал предметы на фотографии."
+        } + if (indexed && returned.length() > 0 && verified.isEmpty())
+            " Найденные артикулы не входят в локальную версию каталога; обновите каталог."
+        else ""
+        return RemotePhotoResult(found, terms, note, indexed)
     }
 
     private fun analyzePhotoOnDevice(uri: Uri, requestId: Int) {
@@ -1202,6 +1232,7 @@ class Storefront(
                 val results = searchLocalTerms(terms)
                 ui.post {
                     if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                    if (photoRemoteSucceeded) return@post
                     photoMatches = results
                     photoDetected = recognized.joinToString(", ") { it.text }
                     photoBusy = false
@@ -1223,6 +1254,7 @@ class Storefront(
     private fun showPhotoFallback(requestId: Int, message: String) {
         ui.post {
             if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+            if (photoRemoteSucceeded) return@post
             photoBusy = false
             photoError = ""
             photoMatches = emptyList()
@@ -1299,12 +1331,12 @@ class Storefront(
             else->{
                 sectionTitle(body,"Похожие товары · ${photoMatches.size}")
                 if(photoDetected.isNotBlank())body.addView(text("Распознано: $photoDetected",13f,true,ink).apply{setPadding(dp(16),0,dp(16),dp(6))})
-                val explanation=photoAnalysisNote.ifBlank{"Процент показывает визуальную и смысловую близость, а не гарантию совпадения артикула."}
+                val explanation=photoAnalysisNote.ifBlank{"Показаны возможные совпадения из каталога ОМА. Точный артикул по фотографии не гарантируется."}
                 body.addView(text(explanation,12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
-                photoMatches.forEach{(item,score)->
+                photoMatches.forEach{(item,_)->
                     val card=horizontal().apply{setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.WHITE);setOnClickListener{openProduct(item.id)}}
                     card.addView(photo(item,84),LinearLayout.LayoutParams(dp(84),dp(84)))
-                    val labels=vertical().apply{addView(text(item.title,14f,true).apply{maxLines=2});addView(text("Визуальное сходство: $score%",12.5f,false,blue));addView(text(price(item.price),14f,true))}
+                    val labels=vertical().apply{addView(text(item.title,14f,true).apply{maxLines=2});addView(text("Артикул: ${item.id}",12.5f,false,blue));addView(text(price(item.price),14f,true))}
                     card.addView(labels,LinearLayout.LayoutParams(0,dp(84),1f).apply{leftMargin=dp(12)})
                     body.addView(card,LinearLayout.LayoutParams(-1,dp(101)).apply{leftMargin=dp(12);rightMargin=dp(12);bottomMargin=dp(5)})
                 }
