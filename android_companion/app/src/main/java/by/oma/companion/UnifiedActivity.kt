@@ -87,7 +87,7 @@ class UnifiedActivity : Activity() {
         out.putInt("introPage", launchIntro?.currentPage ?: introPage)
         super.onSaveInstanceState(out)
     }
-    override fun onDestroy() { web?.destroy(); homeHub.closePreview(); api.close(); super.onDestroy() }
+    override fun onDestroy() { web?.destroy(); homeHub.closePreview(); homeHub.closeRoomEditor(); api.close(); super.onDestroy() }
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (introActive && launchIntro?.onTouchEvent(event) == true) return true
         return super.dispatchTouchEvent(event)
