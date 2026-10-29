@@ -38,10 +38,9 @@ class UnifiedActivity : Activity() {
     private val masterHub by lazy { MasterHub(this,{go(it)},{homeHub.selectedHomeName()}) }
     private lateinit var body: LinearLayout
     private val prefs by lazy { getSharedPreferences("unified_profile_demo", MODE_PRIVATE) }
-    private var tab = "Профиль"
+    private var tab = "Главная"
     private var screen = ""
     private var authMode = "register"
-    private var featurePopupOpen = false
     private var pendingFeatureLogin = false
     private var featureOriginScreen = ""
     private var generation = 0
@@ -64,16 +63,16 @@ class UnifiedActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         api = Api(this)
         pendingCameraUri = savedInstanceState?.getString("pendingCameraUri")?.let(Uri::parse)
-        introActive = savedInstanceState?.getBoolean("introActive") ?: true
+        introActive = savedInstanceState?.getBoolean("introActive")
+            ?: !prefs.getBoolean("has_seen_launch_intro", false)
         introPage = savedInstanceState?.getInt("introPage") ?: 0
         shop.loadExistingCatalog()
         contractorId = prefs.getInt("contractor", 0)
         masterId = contractorId
-        tab = savedInstanceState?.getString("tab") ?: "Профиль"
+        tab = savedInstanceState?.getString("tab") ?: "Главная"
         screen = savedInstanceState?.getString("screen") ?: ""
         authMode = savedInstanceState?.getString("authMode")
             ?: if (prefs.contains("demo_auth_hash")) "login" else "register"
-        featurePopupOpen = savedInstanceState?.getBoolean("featurePopupOpen") ?: false
         pendingFeatureLogin = savedInstanceState?.getBoolean("pendingFeatureLogin") ?: false
         featureOriginScreen = savedInstanceState?.getString("featureOriginScreen") ?: ""
         render()
@@ -81,7 +80,6 @@ class UnifiedActivity : Activity() {
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("tab",tab); out.putString("screen",screen)
         out.putString("authMode", authMode)
-        out.putBoolean("featurePopupOpen", featurePopupOpen)
         out.putBoolean("pendingFeatureLogin", pendingFeatureLogin)
         out.putString("featureOriginScreen", featureOriginScreen)
         out.putString("pendingCameraUri", pendingCameraUri?.toString())
@@ -98,12 +96,13 @@ class UnifiedActivity : Activity() {
     private fun signedIn():Boolean = prefs.getBoolean("registered",false)
     private fun notice(s:String) { Toast.makeText(this,s,Toast.LENGTH_LONG).show() }
     private fun active(id:Int):Boolean = generation == id && !isFinishing
-    private fun go(s:String) { screen=s; featurePopupOpen=false; render() }
-    private fun tabTo(s:String) { tab=s; screen=""; featurePopupOpen=false; render() }
+    private fun go(s:String) { screen=s; render() }
+    private fun tabTo(s:String) { tab=s; screen=""; render() }
 
     private fun finishLaunchIntro() {
         if (!introActive) return
         introActive = false
+        prefs.edit().putBoolean("has_seen_launch_intro", true).apply()
         launchIntro = null
         tab = "Главная"
         screen = ""
@@ -114,36 +113,15 @@ class UnifiedActivity : Activity() {
         if (route == "photo") {
             openCatalogPhotoPicker()
         } else {
-            // Reuse existing auth gating, home, 3D and masters destinations.
             featureOriginScreen = route
-            chooseFeature(route)
+            if (!signedIn()) {
+                pendingFeatureLogin = true
+                authMode = if (prefs.contains("demo_auth_hash")) "login" else "register"
+                go("auth")
+            } else {
+                go(route)
+            }
         }
-    }
-    private fun openFeaturePromo() {
-        featureOriginScreen = screen
-        if (!signedIn()) {
-            pendingFeatureLogin = true
-            authMode = if (prefs.contains("demo_auth_hash")) "login" else "register"
-            go("auth")
-        } else {
-            featurePopupOpen = true
-            render()
-        }
-    }
-    private fun chooseFeature(route:String) {
-        if (!signedIn()) {
-            featurePopupOpen = false
-            pendingFeatureLogin = true
-            go("auth")
-            return
-        }
-        featurePopupOpen = false
-        go(when(route) {
-            "passport" -> "home:passport"
-            "3d" -> "home:3d"
-            "master" -> "master:hub"
-            else -> route
-        })
     }
     private fun openHomeHub() {
         if (!signedIn()) {
@@ -193,7 +171,6 @@ class UnifiedActivity : Activity() {
             introActive -> {
                 if (introPage > 0) launchIntro?.previous() else finishLaunchIntro()
             }
-            featurePopupOpen -> { featurePopupOpen = false; render() }
             screen == "auth" && pendingFeatureLogin -> {
                 pendingFeatureLogin = false
                 go(featureOriginScreen)
@@ -206,7 +183,6 @@ class UnifiedActivity : Activity() {
             screen.startsWith("master:") -> go(masterHub.back(screen))
             screen in listOf("3d", "passport", "master", "smart") -> {
                 screen = featureOriginScreen
-                featurePopupOpen = signedIn()
                 render()
             }
             screen == "masterMode" -> go("master")
@@ -304,7 +280,7 @@ class UnifiedActivity : Activity() {
             setOnClickListener {onBackPressed()}
         },LinearLayout.LayoutParams(dp(30),dp(32)).apply {rightMargin=dp(10)})
         val heading=when(screen) {
-            "auth"->"Вход и регистрация";"digital"->"Новые функции"
+            "auth"->"Вход и регистрация";"digital"->"Цифровой дом"
             "shop:product","shop:category","shop:listing","shop:search","shop:photo","shop:checkout" -> shop.heading(screen)
             else -> if (screen.startsWith("home:")) homeHub.title(screen)
             else if(screen.startsWith("master:"))masterHub.title(screen) else when(screen) {
@@ -331,8 +307,8 @@ class UnifiedActivity : Activity() {
         root.addView(scroller,LinearLayout.LayoutParams(-1,0,1f))
         divider(root)
         val bottom=LinearLayout(this).apply{setBackgroundColor(Color.WHITE);gravity=Gravity.CENTER}
-        listOf(Pair("Главная","grid"),Pair("Каталог","search"),Pair("Корзина","bag"),
-            Pair("Избранное","heart"),Pair("Профиль","profile")).forEach { (name,glyph) ->
+        listOf(Pair("Главная","grid"),Pair("Каталог","search"),Pair("Услуги","hammer"),
+            Pair("Мои проекты","box"),Pair("Профиль","profile")).forEach { (name,glyph) ->
             val col=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER
                 isClickable=true;isFocusable=true
                 contentDescription=if(tab==name) "$name, выбрано" else name
@@ -341,47 +317,21 @@ class UnifiedActivity : Activity() {
             val color=if (tab==name) selected else ink
             val iconFrame = android.widget.FrameLayout(this)
             iconFrame.addView(icon(glyph,28,color),android.widget.FrameLayout.LayoutParams(dp(28),dp(28),Gravity.CENTER))
-            if (name == "Корзина" && shop.cartCount() > 0) {
-                val badge = label(shop.cartCount().toString(),9f,true,Color.WHITE).apply {
-                    gravity = Gravity.CENTER
-                    background = Style.bg(Style.ORANGE,8f)
-                }
-                iconFrame.addView(badge, android.widget.FrameLayout.LayoutParams(
-                    dp(18),dp(18),Gravity.TOP or Gravity.RIGHT))
-            }
             col.addView(iconFrame,LinearLayout.LayoutParams(dp(35),dp(31)))
-            col.addView(label(name,10f,false,color).apply{gravity=Gravity.CENTER})
+            col.addView(label(name,11f,false,color).apply{
+                gravity=Gravity.CENTER
+                maxLines=1
+                ellipsize=android.text.TextUtils.TruncateAt.END
+            })
             bottom.addView(col,LinearLayout.LayoutParams(0,-1,1f))
         }
-        if (screen == "" && tab == "Корзина" && shop.cartCount() > 0) {
-            root.addView(shop.checkoutFooter())
-        }
-        root.addView(bottom,LinearLayout.LayoutParams(-1,dp(65)))
+        root.addView(bottom,LinearLayout.LayoutParams(-1,dp(72)))
         val canvas = android.widget.FrameLayout(this)
         canvas.addView(root, android.widget.FrameLayout.LayoutParams(-1, -1))
         setContentView(canvas)
         body.alpha=0f
         body.translationY=dp(6).toFloat()
         body.animate().alpha(1f).translationY(0f).setDuration(170L).start()
-
-        // The small in-app promotional chip floats above ALL five store tabs
-        // and their catalog/product pages, but stays out of sign-in and service screens.
-        if (screen == "" || screen.startsWith("shop:")) {
-            if (featurePopupOpen && signedIn()) {
-                FloatingFeatures.attachMenu(
-                    this, canvas,
-                    onDismiss = { featurePopupOpen = false; render() },
-                    onSelect = { route -> chooseFeature(route) }
-                )
-            } else {
-                FloatingFeatures.attachChip(
-                    this, canvas,
-                    clearanceFromBottomDp = if (screen == "" &&
-                        tab == "Корзина" && shop.cartCount() > 0) 196 else 87,
-                    open = { openFeaturePromo() }
-                )
-            }
-        }
 
         if (screen.startsWith("shop:")) {
             shop.render(screen, body)
@@ -410,8 +360,8 @@ class UnifiedActivity : Activity() {
                 "Профиль"->profile()
                 "Главная"->shop.home(body)
                 "Каталог"->shop.catalog(body)
-                "Корзина"->shop.cartScreen(body)
-                "Избранное"->shop.favoritesScreen(body)
+                "Услуги"->masterHub.render("master:hub",body)
+                "Мои проекты"->homeHub.render("home:hub",body)
             }
         }
     }
@@ -525,13 +475,12 @@ class UnifiedActivity : Activity() {
             if (pendingFeatureLogin) {
                 pendingFeatureLogin = false
                 screen = featureOriginScreen
-                featurePopupOpen = !featureOriginScreen.startsWith("home:")
                 render()
             } else {
                 tab = "Профиль"
                 go("")
             }
-            notice("Доступ к новым функциям открыт")
+            notice("Цифровой дом открыт")
         }
 
         val help = if (authMode == "register")

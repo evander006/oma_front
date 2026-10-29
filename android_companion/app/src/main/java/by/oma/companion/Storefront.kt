@@ -335,6 +335,8 @@ class Storefront(
         "shop:product" -> product(currentProduct)?.title ?: "Товар"
         "shop:search" -> "Поиск"
         "shop:photo" -> "Поиск по фото"
+        "shop:cart" -> "Корзина"
+        "shop:favorites" -> "Избранное"
         "shop:checkout" -> "Оформление заказа"
         else -> "ОМА"
     }
@@ -369,6 +371,8 @@ class Storefront(
             "shop:product" -> detail(body)
             "shop:search" -> searchScreen(body)
             "shop:photo" -> photoSearchScreen(body)
+            "shop:cart" -> cartScreen(body)
+            "shop:favorites" -> favoritesScreen(body)
             "shop:checkout" -> checkout(body)
         }
     }
@@ -463,65 +467,50 @@ class Storefront(
             leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(12);bottomMargin = dp(16)
         })
     }
-    private fun roundedImage(res: Int, radius: Int) = ImageView(activity).apply {
-        setImageResource(res)
-        scaleType = ImageView.ScaleType.CENTER_CROP
-        background = rounded(Color.WHITE, radius, Color.TRANSPARENT)
-        clipToOutline = true
-    }
-    private val stories = listOf(R.drawable.oma_story_passport, R.drawable.oma_story_interior,
-        R.drawable.oma_story_visual, R.drawable.oma_story_service, R.drawable.oma_story_bonus, R.drawable.oma_story_sale60,
-        R.drawable.oma_story_credit, R.drawable.oma_story_delivery, R.drawable.oma_story_assortment)
-    private val banners = listOf(R.drawable.oma_banner_halva, R.drawable.oma_banner_lamps,
-        R.drawable.oma_banner_makita, R.drawable.oma_banner_appliances, R.drawable.oma_banner_bedding,
-        R.drawable.oma_banner_foam, R.drawable.oma_banner_alpina, R.drawable.oma_banner_lastunit)
-    private fun openStory(start: Int) {
-        val dialog = android.app.Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
-        val frame = FrameLayout(activity).apply { setBackgroundColor(Color.BLACK) }
-        val image = ImageView(activity).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-        frame.addView(image, FrameLayout.LayoutParams(-1, -1))
-        val bars = horizontal().apply { setPadding(dp(8), dp(12), dp(8), 0) }
-        val fills = stories.map {
-            val track = FrameLayout(activity).apply { background = rounded(Color.argb(90, 255, 255, 255), 2, Color.TRANSPARENT) }
-            val fill = View(activity).apply { background = rounded(Color.WHITE, 2, Color.TRANSPARENT);pivotX = 0f;scaleX = 0f }
-            track.addView(fill, FrameLayout.LayoutParams(-1, -1))
-            bars.addView(track, LinearLayout.LayoutParams(0, dp(3), 1f).apply { leftMargin = dp(2);rightMargin = dp(2) })
-            fill
+    private fun homeFeatureRow(
+        parent: LinearLayout,
+        title: String,
+        subtitle: String,
+        glyph: String,
+        onClick: () -> Unit
+    ) {
+        val row = horizontal().apply {
+            setPadding(dp(16), dp(10), dp(12), dp(10))
+            background = pressable(Color.WHITE, 12, line)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "$title. $subtitle"
+            setOnClickListener { onClick() }
         }
-        frame.addView(bars, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
-        var index = start
-        fun show(i: Int) {
-            if (i !in stories.indices) { dialog.dismiss();return }
-            index = i
-            fills.forEachIndexed { n, v -> v.animate().cancel();v.scaleX = if (n < i) 1f else 0f }
-            image.setImageResource(stories[i])
-            image.alpha = 0f;image.animate().alpha(1f).setDuration(180).start()
-            fills[i].animate().scaleX(1f).setDuration(5000).setInterpolator(android.view.animation.LinearInterpolator())
-                .withEndAction { if (dialog.isShowing && index == i) show(i + 1) }.start()
-        }
-        frame.setOnClickListener {}
-        frame.setOnTouchListener { v, e ->
-            if (e.action == android.view.MotionEvent.ACTION_UP)
-                show(if (e.x < v.width / 3f) (index - 1).coerceAtLeast(0) else index + 1)
-            true
-        }
-        dialog.setContentView(frame)
-        dialog.show()
-        show(start)
+        row.addView(LineIcon(activity, glyph, blue).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(30), dp(30)).apply { rightMargin = dp(14) })
+        val labels = vertical()
+        labels.addView(text(title, 17f, true, ink))
+        labels.addView(text(subtitle, 13f, false, Color.rgb(91, 105, 116)).apply {
+            maxLines = 2
+        })
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(LineIcon(activity, "chevron", ink).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(dp(22), dp(22)))
+        parent.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(8)
+        })
     }
     fun home(body: LinearLayout) {
-        body.setBackgroundColor(Color.WHITE)
+        body.setBackgroundColor(soft)
         val top = vertical().apply { setBackgroundColor(Color.WHITE);elevation = dp(3).toFloat() }
         val brandRow = horizontal().apply {setPadding(dp(16), dp(14), dp(16), dp(6))}
         brandRow.addView(ImageView(activity).apply {
             setImageResource(R.drawable.oma_logo);scaleType = ImageView.ScaleType.FIT_START
             contentDescription = "ОМА"
         }, LinearLayout.LayoutParams(0, dp(32), 1f))
-        brandRow.addView(LineIcon(activity,"home",ink).apply {
-            contentDescription="Открыть цифровой дом"
-            setOnClickListener { openHomeHub() }
-        }, LinearLayout.LayoutParams(dp(28),dp(28)).apply {rightMargin=dp(16)})
         val city = horizontal().apply {
+            minimumHeight = dp(48)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Город: Минск"
             setOnClickListener { Toast.makeText(activity, "Демонстрационный город: Минск", Toast.LENGTH_SHORT).show() }
         }
         city.addView(LineIcon(activity, "location", Color.BLACK), LinearLayout.LayoutParams(dp(18), dp(18)).apply { rightMargin = dp(8) })
@@ -531,7 +520,43 @@ class Storefront(
         top.addView(brandRow)
         searchBar(top)
         body.addView(top)
-        space(body, 34)
+        space(body, 18)
+
+        sectionTitle(body, "Ваш цифровой дом")
+        val homeCard = vertical().apply {
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            background = rounded(Style.BRAND_RED_SOFT, 14, Color.TRANSPARENT)
+            isClickable = true
+            isFocusable = true
+            contentDescription = "Открыть цифровой дом"
+            setOnClickListener { openHomeHub() }
+        }
+        homeCard.addView(text("Дом, покупки и задачи — в одном месте", 20f, true, ink))
+        homeCard.addView(text(
+            "Создайте объект, ведите паспорт, смотрите 3D и находите мастера.",
+            14f, false, Color.rgb(74, 91, 105)
+        ).apply { setPadding(0, dp(8), 0, dp(14)) })
+        homeCard.addView(button("Открыть цифровой дом", { openHomeHub() }),
+            LinearLayout.LayoutParams(-1, dp(48)))
+        body.addView(homeCard, LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(18)
+        })
+
+        sectionTitle(body, "Быстрые действия")
+        homeFeatureRow(body, "Паспорт дома", "Комнаты, покупки и PDF", "receipt") {
+            openStoryFeature("home:passport")
+        }
+        homeFeatureRow(body, "3D-модель", "Посмотрите пространство объекта", "home") {
+            openStoryFeature("home:3d")
+        }
+        homeFeatureRow(body, "Услуги мастеров", "Подбор специалиста и заявка", "hammer") {
+            openStoryFeature("master:hub")
+        }
+        homeFeatureRow(body, "Поиск по фото", "Найдите товар в каталоге ОМА", "search") {
+            openStoryFeature("photo")
+        }
+
+        sectionTitle(body, "Каталог ОМА", all = { changeTab("Каталог") })
 
         val chips = HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false;clipToPadding = false }
         val chipRow = horizontal().apply {setPadding(dp(14), dp(2), dp(14), dp(4))}
@@ -552,51 +577,7 @@ class Storefront(
         }
         chips.addView(chipRow)
         body.addView(chips)
-        space(body, 16)
-
-        // Stories: the first one carries the orange "new" ring, as in the OMA app.
-        val promos = HorizontalScrollView(activity).apply { isHorizontalScrollBarEnabled = false }
-        val promoRow = horizontal().apply {setPadding(dp(12), 0, dp(12), 0)}
-        stories.forEachIndexed { index, res ->
-            val ring = FrameLayout(activity).apply {
-                background = rounded(Color.WHITE, 12, if (index == 0) orange else Color.TRANSPARENT).apply {
-                    setStroke(dp(3), if (index == 0) orange else Color.TRANSPARENT)
-                }
-                setPadding(dp(4), dp(4), dp(4), dp(4))
-                contentDescription = when (index) {
-                    0 -> "Паспорт дома"
-                    1 -> "3D-модель дома"
-                    2 -> "Поиск по фото"
-                    3 -> "Знающий мастер"
-                    else -> "История ${index + 1}"
-                }
-                setOnClickListener {
-                    when (index) {
-                        0 -> openStoryFeature("home:passport")
-                        1 -> openStoryFeature("home:3d")
-                        2 -> openStoryFeature("photo")
-                        3 -> openStoryFeature("master:hub")
-                        else -> openStory(index)
-                    }
-                }
-            }
-            ring.addView(roundedImage(res, 8), FrameLayout.LayoutParams(-1, -1))
-            promoRow.addView(ring, LinearLayout.LayoutParams(dp(110), dp(136)).apply { rightMargin = dp(6) })
-        }
-        promos.addView(promoRow)
-        body.addView(promos)
-        space(body, 14)
-
-        banners.forEach { res ->
-            body.addView(roundedImage(res, 12).apply {
-                scaleType = ImageView.ScaleType.FIT_XY
-                adjustViewBounds = true
-                elevation = dp(2).toFloat()
-                setOnClickListener { changeTab("Каталог") }
-            }, LinearLayout.LayoutParams(-1, -2).apply {
-                leftMargin = dp(16);rightMargin = dp(16);topMargin = dp(8);bottomMargin = dp(16)
-            })
-        }
+        space(body, 12)
         sectionTitle(body, "Популярные товары")
         if (catalogDb != null) {
             val page = requestPage("home:popular", limit = 12)
@@ -606,6 +587,14 @@ class Storefront(
     }
     fun catalog(body: LinearLayout) {
         searchBar(body)
+        val saved = horizontal().apply { setPadding(dp(16), 0, dp(16), dp(10)) }
+        saved.addView(outlineButton("Корзина · ${cartCount()}", {
+            navigate("shop:cart")
+        }), LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(6) })
+        saved.addView(outlineButton("Избранное", {
+            navigate("shop:favorites")
+        }), LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(6) })
+        body.addView(saved)
         tileGrid(body, if (catalogDb != null && categoryMap.isNotEmpty())
             categoryMap.keys.toList() else rootCategories) { openCategory(it) }
         val catalogMessage = when {
