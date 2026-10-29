@@ -435,7 +435,7 @@ class HomeHub(
                     view: WebView?,
                     request: android.webkit.WebResourceRequest?
                 ): Boolean {
-                    val target = request?.url ?: return false
+                    val target = request?.url ?: return true
                     // Only the bundled editor's isolated origin may stay in this WebView.
                     // External links must never inherit the native JavaScript bridge.
                     return target.host != "oma-room-editor.invalid"
