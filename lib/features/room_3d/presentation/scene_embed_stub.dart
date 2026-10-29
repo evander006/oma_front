@@ -42,7 +42,7 @@ class _SceneEmbedState extends State<SceneEmbed> {
             if (mounted) setState(() => _loading = false);
           },
           onWebResourceError: (error) {
-            if (!error.isForMainFrame) return;
+            if (error.isForMainFrame == false) return;
             if (mounted) setState(() {
               _loading = false;
               _error = 'Не удалось открыть 3D-сцену. Проверьте подключение к интернету и доступность сервера.';
