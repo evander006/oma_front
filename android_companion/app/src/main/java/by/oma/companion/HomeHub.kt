@@ -421,6 +421,8 @@ class HomeHub(
             contentDescription = "Реалистичный 3D-редактор объекта ${home.name}"
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
             settings.loadWithOverviewMode = true
             settings.useWideViewPort = true
             settings.cacheMode = WebSettings.LOAD_DEFAULT
@@ -464,7 +466,16 @@ class HomeHub(
         body.addView(frame, LinearLayout.LayoutParams(-1, dp(610)).apply {
             leftMargin = dp(8); rightMargin = dp(8); bottomMargin = dp(14)
         })
-        viewer.loadUrl(api.baseUrl.trimEnd('/') + "/api/v1/scene/editor")
+        val sceneHtml = activity.assets.open("scene.html").bufferedReader(Charsets.UTF_8).use { it.readText() }
+        // Use an isolated, non-routable origin. The editor is bundled locally, so
+        // the native JavaScript bridge is never exposed to a remotely served HTML page.
+        viewer.loadDataWithBaseURL(
+            "https://oma-room-editor.invalid/",
+            sceneHtml,
+            "text/html",
+            "UTF-8",
+            null
+        )
         note(body, "Мебель из каталога можно примерить до покупки. Если точная 3D-модель производителя отсутствует, используется объёмная модель по категории товара; размеры комнаты берутся из паспорта объекта.")
     }
 
