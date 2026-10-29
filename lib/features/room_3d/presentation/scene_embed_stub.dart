@@ -15,10 +15,18 @@ class _SceneEmbedState extends State<SceneEmbed> {
   late final WebViewController _controller;
   bool _loading = true;
   String? _error;
+  late final bool _supportsWebView;
 
   @override
   void initState() {
     super.initState();
+    _supportsWebView = defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    if (!_supportsWebView) {
+      _loading = false;
+      _error = 'Интерактивная 3D-сцена доступна на Android, iOS и в веб-версии.';
+      return;
+    }
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xffe8edef))
@@ -48,7 +56,7 @@ class _SceneEmbedState extends State<SceneEmbed> {
   @override
   void didUpdateWidget(covariant SceneEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) {
+    if (_supportsWebView && oldWidget.url != widget.url) {
       setState(() {
         _loading = true;
         _error = null;
@@ -61,7 +69,7 @@ class _SceneEmbedState extends State<SceneEmbed> {
   Widget build(BuildContext context) => Stack(
         fit: StackFit.expand,
         children: [
-          WebViewWidget(controller: _controller),
+          if (_supportsWebView) WebViewWidget(controller: _controller),
           if (_loading)
             const ColoredBox(
               color: Color(0xffe8edef),
@@ -106,16 +114,17 @@ class _SceneEmbedState extends State<SceneEmbed> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: () {
-                          setState(() {
-                            _loading = true;
-                            _error = null;
-                          });
-                          _controller.reload();
-                        },
-                        child: const Text('Повторить'),
-                      ),
+                      if (_supportsWebView)
+                        OutlinedButton(
+                          onPressed: () {
+                            setState(() {
+                              _loading = true;
+                              _error = null;
+                            });
+                            _controller.reload();
+                          },
+                          child: const Text('Повторить'),
+                        ),
                     ],
                   ),
                 ),
