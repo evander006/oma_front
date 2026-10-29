@@ -477,7 +477,7 @@ class HomeHub(
         roomWebView = null
     }
 
-    private inner class RoomSceneBridge(private val homeId: String) {
+    inner class RoomSceneBridge(private val homeId: String) {
         @JavascriptInterface
         fun getRoomScene(): String = runCatching {
             buildRoomScene(homeId).toString()
