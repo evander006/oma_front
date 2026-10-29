@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.15.1-digital-home-ux"
+        versionCode = 17
+        versionName = "0.15.2-embedded-catalog"
     }
     buildTypes {
         release { isMinifyEnabled = false }

@@ -26,7 +26,11 @@ internal class OmaCatalogDatabase(private val directory: File) {
         val required = setOf("sku", "name", "category_path", "price", "old_price",
             "unit", "image_files", "image_urls", "brand")
         require(names.containsAll(required)) { "В каталоге отсутствуют обязательные поля" }
-        db.rawQuery("SELECT COUNT(*) FROM products WHERE sku IS NOT NULL AND name IS NOT NULL", null)
+        db.rawQuery(
+            "SELECT COUNT(*) FROM products WHERE sku IS NOT NULL AND name IS NOT NULL " +
+                "AND image_urls IS NOT NULL AND image_urls <> '[]'",
+            null
+        )
             .use { c -> if (c.moveToFirst()) c.getInt(0) else 0 }
     }
 
@@ -66,7 +70,10 @@ internal class OmaCatalogDatabase(private val directory: File) {
         limit: Int = 20,
         offset: Int = 0
     ): Page = withDb { db ->
-        val filters = mutableListOf("sku IS NOT NULL", "name IS NOT NULL")
+        val filters = mutableListOf(
+            "sku IS NOT NULL", "name IS NOT NULL",
+            "image_urls IS NOT NULL", "image_urls <> '[]'"
+        )
         val args = mutableListOf<String>()
         if (category.isNotBlank()) {
             filters.add("(category_path = ? OR category_path LIKE ?)")
@@ -105,7 +112,11 @@ internal class OmaCatalogDatabase(private val directory: File) {
 
     fun categories(): Map<String, List<String>> = withDb { db ->
         val categories = linkedMapOf<String, LinkedHashSet<String>>()
-        db.rawQuery("SELECT DISTINCT category_path FROM products WHERE category_path IS NOT NULL", null)
+        db.rawQuery(
+            "SELECT DISTINCT category_path FROM products WHERE category_path IS NOT NULL " +
+                "AND image_urls IS NOT NULL AND image_urls <> '[]'",
+            null
+        )
             .use { c ->
                 while (c.moveToNext()) {
                     val parts = c.getString(0).orEmpty().split(" / ")
@@ -120,7 +131,11 @@ internal class OmaCatalogDatabase(private val directory: File) {
     }
 
     fun bySku(sku: String): Storefront.Item? = withDb { db ->
-        db.rawQuery("SELECT $columns FROM products WHERE sku = ? LIMIT 1", arrayOf(sku))
+        db.rawQuery(
+            "SELECT $columns FROM products WHERE sku = ? " +
+                "AND image_urls IS NOT NULL AND image_urls <> '[]' LIMIT 1",
+            arrayOf(sku)
+        )
             .use { c -> if (c.moveToFirst()) row(c) else null }
     }
 }

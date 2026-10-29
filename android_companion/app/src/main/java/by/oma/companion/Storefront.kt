@@ -1,7 +1,6 @@
 package by.oma.companion
 
 import android.app.Activity
-import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -30,6 +29,7 @@ import java.net.URL
 import java.text.NumberFormat
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.zip.GZIPInputStream
 import java.util.zip.ZipInputStream
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -39,7 +39,7 @@ import kotlin.math.sqrt
  * Demo storefront based on the supplied OMA screenshots and catalog export.
  * No access to official OMA user accounts, checkout or live inventory.
  * Works with built-in sample products and an optional large offline SQLite catalog.
- * Importing output.zip installs catalog.db; photo URLs are loaded lazily.
+ * The bundled catalog is installed automatically; photo URLs are loaded lazily.
  */
 class Storefront(
     private val activity: Activity,
@@ -65,6 +65,7 @@ class Storefront(
         private val imageCache = object : android.util.LruCache<String, Bitmap>(24 * 1024) {
             override fun sizeOf(key: String, value: Bitmap) = value.byteCount / 1024
         }
+        private const val EMBEDDED_CATALOG_VERSION = "20261028_113225"
     }
 
     private val prefs: SharedPreferences =
@@ -86,6 +87,7 @@ class Storefront(
     private val productCache = LinkedHashMap<String, Item>()
     private val pendingSkuLoads = mutableSetOf<String>()
     private val missingSkuIds = mutableSetOf<String>()
+    private val unavailableImageIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private var selectedCategory = "Инструмент"
     private var selectedSubcategory = ""
     private var currentProduct = ""
@@ -156,13 +158,13 @@ class Storefront(
     }
     private val red = Color.rgb(200, 16, 30)
     private fun priceText(value: Double?, unit: String, size: Float, color: Int) = TextView(activity).apply {
-        val main = price(value)
+        val main = if (value == null) "По запросу" else price(value)
         val tail = if (value == null) "" else " / $unit"
         val s = android.text.SpannableString(main + tail)
         s.setSpan(android.text.style.StyleSpan(Typeface.BOLD), 0, main.length, 0)
         s.setSpan(android.text.style.RelativeSizeSpan(.78f), main.length, s.length, 0)
         s.setSpan(android.text.style.ForegroundColorSpan(Color.rgb(90, 96, 102)), main.length, s.length, 0)
-        text = s;textSize = size;setTextColor(color)
+        text = s;textSize = if (value == null) size - 2f else size;setTextColor(color)
     }
     private fun button(title: String, onClick: () -> Unit, fill: Int = blue): TextView =
         text(title, 15f, false, Color.WHITE).apply {
@@ -397,13 +399,17 @@ class Storefront(
         navigate("shop:product")
     }
 
-    private fun bindImage(view: ImageView, item: Item?) {
+    private fun bindImage(view: ImageView, item: Item?, onUnavailable: () -> Unit = {}) {
         val image = item?.image.orEmpty()
+        val itemId = item?.id.orEmpty()
         view.setBackgroundColor(Color.WHITE)
         view.scaleType = ImageView.ScaleType.FIT_CENTER
         view.setImageResource(android.R.drawable.ic_menu_gallery)
         view.tag = image
-        if (image.isBlank()) return
+        if (image.isBlank() || itemId in unavailableImageIds) {
+            view.post(onUnavailable)
+            return
+        }
         val cached = synchronized(imageCache) { imageCache.get(image) }
         if (cached != null) { view.setImageBitmap(cached);return }
         pool.execute {
@@ -420,11 +426,14 @@ class Storefront(
             if (bitmap != null) {
                 synchronized(imageCache) { imageCache.put(image, bitmap) }
                 ui.post { if (view.tag == image) view.setImageBitmap(bitmap) }
+            } else {
+                unavailableImageIds.add(itemId)
+                ui.post { if (view.tag == image) onUnavailable() }
             }
         }
     }
-    private fun photo(item: Item?, height: Int): ImageView = ImageView(activity).apply {
-        bindImage(this, item)
+    private fun photo(item: Item?, height: Int, onUnavailable: () -> Unit = {}): ImageView = ImageView(activity).apply {
+        bindImage(this, item, onUnavailable)
         layoutParams = LinearLayout.LayoutParams(-1, dp(height))
     }
     private fun searchBar(body: LinearLayout, hint: String = "Поиск по названию или категории") {
@@ -607,15 +616,6 @@ class Storefront(
         body.addView(catalogStatusView, LinearLayout.LayoutParams(-1, -2).apply {
             leftMargin=dp(18);rightMargin=dp(15);topMargin=dp(8);bottomMargin=dp(12)
         })
-        body.addView(outlineButton("Загрузить каталог из output.zip", {
-            activity.startActivityForResult(
-                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "application/zip"
-                }, PICK_CATALOG)
-        }), LinearLayout.LayoutParams(-1, dp(42)).apply {
-            leftMargin = dp(16);rightMargin = dp(16);bottomMargin = dp(24)
-        })
     }
     private val categoryArt = mapOf("Акции" to R.drawable.cat_sale, "Интерьер и отделка" to R.drawable.cat_interior,
         "Благоустройство" to R.drawable.cat_garden, "Стройматериалы" to R.drawable.cat_building,
@@ -759,7 +759,9 @@ class Storefront(
             setPadding(0, 0, 0, dp(12))
             setOnClickListener { openProduct(item.id) }
         }
-        outer.addView(photo(item, 184).apply { setPadding(dp(6), dp(6), dp(6), dp(6)) },
+        outer.addView(photo(item, 184) { outer.visibility = View.GONE }.apply {
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        },
             LinearLayout.LayoutParams(-1, dp(184)))
         val info = vertical().apply { setPadding(dp(10), dp(10), dp(10), 0) }
         outer.addView(info)
@@ -802,7 +804,7 @@ class Storefront(
         return outer
     }
     private fun productGrid(body: LinearLayout, list: List<Item>, buttons: Boolean = true) {
-        list.chunked(2).forEach { pair ->
+        list.filter { it.image.isNotBlank() && it.id !in unavailableImageIds }.chunked(2).forEach { pair ->
             val r = horizontal().apply { gravity = Gravity.TOP;setPadding(dp(10), 0, dp(10), 0) }
             pair.forEach { item ->
                 r.addView(card(item, buttons),LinearLayout.LayoutParams(0,-2,1f).apply {
@@ -937,7 +939,10 @@ class Storefront(
             setPadding(dp(10),dp(8),dp(8),dp(8))
             setOnClickListener {openProduct(p.id)}
         }
-        val photo=ImageView(activity).apply {scaleType=ImageView.ScaleType.FIT_CENTER;bindImage(this,p)}
+        val photo=ImageView(activity).apply {
+            scaleType=ImageView.ScaleType.FIT_CENTER
+            bindImage(this,p) { details.visibility = View.GONE }
+        }
         details.addView(photo,LinearLayout.LayoutParams(dp(104),dp(134)))
         val right=vertical().apply {setPadding(dp(8),0,0,0)}
         right.addView(text(p.title,14f,false,Color.DKGRAY).apply {maxLines=3},
@@ -1506,14 +1511,35 @@ class Storefront(
         }
     }
 
-    /** Only metadata is read at startup. Pages are loaded on demand. */
+    /** Install the bundled OMA catalog once, then read only paged metadata at startup. */
     fun loadExistingCatalog() {
         val directory = File(activity.filesDir, "oma_catalog")
-        if (!File(directory, "catalog.db").isFile) return
         catalogLoading = true
-        catalogNotice = "Проверяем сохранённый каталог…"
+        catalogNotice = "Подготавливаем встроенный каталог ОМА…"
         catalogPool.execute {
             val saved = runCatching {
+                val databaseFile = File(directory, "catalog.db")
+                val installedVersion = prefs.getString("embedded_catalog_version", "")
+                if (!databaseFile.isFile || installedVersion != EMBEDDED_CATALOG_VERSION) {
+                    val temporary = File(activity.filesDir, "oma_catalog_embedded_tmp")
+                    temporary.deleteRecursively()
+                    require(temporary.mkdirs()) { "Не удалось подготовить каталог" }
+                    val temporaryDatabase = File(temporary, "catalog.db")
+                    activity.assets.open("embedded_catalog.db.bin").use { asset ->
+                        GZIPInputStream(asset.buffered()).use { packed ->
+                            FileOutputStream(temporaryDatabase).buffered().use { output ->
+                                packed.copyTo(output, 64 * 1024)
+                            }
+                        }
+                    }
+                    val embedded = OmaCatalogDatabase(temporary)
+                    require(embedded.validate() > 0) { "Встроенный каталог пуст" }
+                    directory.deleteRecursively()
+                    require(temporary.renameTo(directory)) { "Не удалось установить каталог" }
+                    prefs.edit().putString(
+                        "embedded_catalog_version", EMBEDDED_CATALOG_VERSION
+                    ).apply()
+                }
                 val db = OmaCatalogDatabase(directory)
                 Triple(db, db.validate(), db.categories())
             }
@@ -1528,7 +1554,7 @@ class Storefront(
                     pageKey = ""
                     pageResult = null
                 }, { error ->
-                    catalogNotice = "Ошибка сохранённого каталога: ${error.message}"
+                    catalogNotice = "Не удалось открыть каталог ОМА: ${error.message}"
                 })
                 if (!activity.isFinishing && !activity.isDestroyed) refresh()
             }
