@@ -413,6 +413,10 @@ class HomeHub(
         }
         note(body, "Объект «${home.name}». Добавляйте товары из полного каталога ОМА, перемещайте и поворачивайте их. Неприобретённые предметы сохраняются как дизайн-проект и не считаются покупкой.")
         val frame = FrameLayout(activity)
+        val loading = text("Загружаем интерактивную 3D-комнату…", 13f, false, Color.rgb(78, 99, 112)).apply {
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.rgb(235, 240, 242))
+        }
         val viewer = WebView(activity).apply {
             contentDescription = "Реалистичный 3D-редактор объекта ${home.name}"
             settings.javaScriptEnabled = true
@@ -450,13 +454,9 @@ class HomeHub(
                 false
             }
         }
-        val loading = text("Загружаем интерактивную 3D-комнату…", 13f, false, Color.rgb(78, 99, 112)).apply {
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.rgb(235, 240, 242))
-            setOnClickListener {
-                visibility = View.VISIBLE
-                viewer.reload()
-            }
+        loading.setOnClickListener {
+            loading.visibility = View.VISIBLE
+            viewer.reload()
         }
         frame.addView(viewer, FrameLayout.LayoutParams(-1, -1))
         frame.addView(loading, FrameLayout.LayoutParams(-1, -1))
@@ -480,7 +480,7 @@ class HomeHub(
     private inner class RoomSceneBridge(private val homeId: String) {
         @JavascriptInterface
         fun getRoomScene(): String = runCatching {
-            buildRoomScene().toString()
+            buildRoomScene(homeId).toString()
         }.getOrElse { bridgeError(it.message ?: "Не удалось загрузить объект") }
 
         @JavascriptInterface
@@ -609,8 +609,8 @@ class HomeHub(
         private fun findHome(): Home? = homes().firstOrNull { it.id == homeId }
     }
 
-    private fun buildRoomScene(): JSONObject {
-        val home = homes().firstOrNull { it.id == roomHomeId() }
+    private fun buildRoomScene(homeId: String): JSONObject {
+        val home = homes().firstOrNull { it.id == homeId }
             ?: return JSONObject().put("name", "Моё жильё").put("rooms", JSONArray())
         val purchased = purchases()
         val places = locations()
@@ -700,7 +700,6 @@ class HomeHub(
             .put("primary_image_url", image)
     }
 
-    private fun roomHomeId() = selectedHome()?.id.orEmpty()
     private fun roomPlacementKey(homeId: String, roomId: String) = "$homeId|$roomId"
 
     private fun roomPlacements(homeId: String, roomId: String): JSONArray {
