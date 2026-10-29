@@ -444,6 +444,18 @@ class HomeHub(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     loading.visibility = View.GONE
                 }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    val host = request?.url?.host.orEmpty()
+                    if (request?.isForMainFrame == true || host == "cdn.jsdelivr.net") {
+                        loading.text = "Не удалось загрузить 3D-сцену. Проверьте интернет и нажмите здесь, чтобы повторить."
+                        loading.visibility = View.VISIBLE
+                    }
+                }
             }
             addJavascriptInterface(RoomSceneBridge(home.id), "OmaRoomBridge")
             setOnTouchListener { view, event ->
