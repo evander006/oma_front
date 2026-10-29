@@ -127,6 +127,7 @@ def build(source: Path, output: Path) -> None:
             VACUUM;
             """
         )
+        unique_products = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         connection.close()
         workbook.close()
 
@@ -136,7 +137,9 @@ def build(source: Path, output: Path) -> None:
         print(
             json.dumps(
                 {
-                    "inserted": inserted,
+                    "inserted": unique_products,
+                    "processed_rows": inserted,
+                    "replaced_duplicate_skus": inserted - unique_products,
                     "skipped_without_image": skipped_no_image,
                     "database_bytes": database.stat().st_size,
                     "asset_bytes": output.stat().st_size,
