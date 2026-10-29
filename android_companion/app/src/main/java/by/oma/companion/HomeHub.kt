@@ -3,6 +3,7 @@ package by.oma.companion
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -11,6 +12,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.text.InputType
+import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -23,6 +25,7 @@ import android.webkit.WebViewClient
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -530,6 +533,34 @@ class HomeHub(
         }.getOrElse { bridgeError(it.message ?: "Не удалось открыть каталог ОМА") }
 
         @JavascriptInterface
+        fun getCatalogImage(sku: String): String = runCatching {
+            val product = findCatalogItem(sku)
+                ?: return@runCatching JSONObject().put("error", "Изображение товара не найдено").toString()
+            val raw = product.image
+            if (raw.startsWith("https://") || raw.startsWith("http://")) {
+                return@runCatching JSONObject().put("url", raw).toString()
+            }
+            val directory = catalogDirectory().canonicalFile
+            val file = File(raw).canonicalFile
+            if (!file.isFile || !file.path.startsWith(directory.path + File.separator) || file.length() > 8L * 1024L * 1024L) {
+                return@runCatching JSONObject().put("error", "Локальное изображение недоступно").toString()
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.path, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 900) sample *= 2
+            val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: return@runCatching JSONObject().put("error", "Не удалось прочитать изображение").toString()
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+            bitmap.recycle()
+            JSONObject().put(
+                "data_url",
+                "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+            ).toString()
+        }.getOrElse { bridgeError(it.message ?: "Не удалось загрузить изображение товара") }
+
+        @JavascriptInterface
         fun addPlacement(
             roomId: String,
             productId: String,
@@ -727,14 +758,19 @@ class HomeHub(
 
     private fun catalogItemJson(item: Storefront.Item): JSONObject {
         val image = item.image.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty()
+        val categoryPath = listOf(item.category, item.subcategory).filter { it.isNotBlank() }.joinToString(" / ")
         return JSONObject()
             .put("id", item.id)
             .put("name", item.title)
-            .put("category_id", listOf(item.category, item.subcategory).filter { it.isNotBlank() }.joinToString(" / "))
+            .put("category_id", categoryPath)
+            .put("category_name", item.category)
+            .put("category_path", categoryPath)
+            .put("subcategory", item.subcategory)
             .put("brand", item.brand)
             .put("price", item.price ?: JSONObject.NULL)
             .put("currency", "BYN")
             .put("primary_image_url", image)
+            .put("image_url", image)
     }
 
     private fun roomPlacementKey(homeId: String, roomId: String) = "$homeId|$roomId"
