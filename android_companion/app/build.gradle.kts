@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
-        versionName = "0.15.3-photo-search-recovery"
+        versionCode = 19
+        versionName = "0.15.4-siglip-lan-preview"
     }
     buildTypes {
         release { isMinifyEnabled = false }
