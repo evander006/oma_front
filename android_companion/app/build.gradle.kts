@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "0.15.2-embedded-catalog"
+        versionCode = 20
+        versionName = "0.15.5-wifi-verified"
     }
     buildTypes {
         release { isMinifyEnabled = false }
@@ -25,4 +25,5 @@ android {
 dependencies {
     implementation("androidx.core:core:1.15.0")
     implementation("com.google.mlkit:image-labeling:17.0.9")
+    testImplementation("junit:junit:4.13.2")
 }

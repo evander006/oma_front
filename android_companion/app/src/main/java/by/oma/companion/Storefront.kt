@@ -102,6 +102,13 @@ class Storefront(
     private var photoAnalysisNote = ""
     private var photoDetected = ""
     private var photoSearchToken = 0
+    private var photoRemoteSucceeded = false
+    private var photoLocalFinished = false
+    private var photoRemoteFinished = false
+    private var photoServerConfigurationOpen = false
+    private var photoServerConnectionError = ""
+    private var photoServerCheckBusy = false
+    private var photoServerDraftUrl = ""
     private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
@@ -1023,30 +1030,72 @@ class Storefront(
         val requestId = ++photoSearchToken
         photoUri = uri; photoBusy = true; photoError = ""; photoMatches = emptyList()
         photoAnalysisNote = ""; photoDetected = ""
+        photoRemoteSucceeded = false
+        photoLocalFinished = false; photoRemoteFinished = false
+        photoServerConnectionError = ""
         photoMatchLabel = "Релевантность"
         navigate("shop:photo")
 
         // The bundled on-device labeler responds quickly, even without a server.
         analyzePhotoOnDevice(uri, requestId)
 
-        // A configured remote vision provider can improve the object terms later.
+        // A remote vision/index response can refine the local candidates.
+        // Always finish remote state, including network errors and upload failures,
+        // so a valid photo never leaves the user stuck on "0" or a spinner.
         pool.execute {
-            val photoBytes = runCatching { preparePhotoUpload(uri) }
-            photoBytes.onSuccess { bytes ->
+            val bytes = runCatching { preparePhotoUpload(uri) }.getOrNull()
+            if (bytes == null) {
+                ui.post {
+                    if (requestId == photoSearchToken && isPhotoSearchVisible()) {
+                        if (api.isLocalPhotoSearchConfigured()) {
+                            photoServerConnectionError = "Не удалось подготовить фотографию для нейропоиска на ПК."
+                        }
+                        photoRemoteFinished = true
+                        if (photoLocalFinished) {
+                            photoBusy = false
+                            navigate("shop:photo")
+                        }
+                    }
+                }
+            } else {
                 api.visualSearch(bytes, "image/jpeg") { remote ->
-                    remote.onSuccess { raw ->
+                    if (remote.isFailure) {
+                        if (requestId == photoSearchToken && isPhotoSearchVisible()) {
+                            if (api.isLocalPhotoSearchConfigured()) {
+                                photoServerConnectionError =
+                                    "ПК не ответил. Проверьте Wi-Fi, IP-адрес, порт 8765 и запущенный сервер."
+                            }
+                            photoRemoteFinished = true
+                            if (photoLocalFinished) {
+                                photoBusy = false
+                                navigate("shop:photo")
+                            }
+                        }
+                    } else {
                         pool.execute {
-                            val result = runCatching { parseRemoteMatches(raw) }.getOrNull()
+                            val result = runCatching { parseRemoteMatches(remote.getOrThrow()) }.getOrNull()
                             ui.post {
-                                if (requestId != photoSearchToken || !isPhotoSearchVisible() || result == null) return@post
-                                val (found, terms, note) = result
-                                if (terms.isNotEmpty() && found.isNotEmpty()) {
-                                    photoMatches = found
-                                    photoDetected = terms.joinToString(", ")
-                                    photoAnalysisNote = note +
-                                        " Результаты сопоставлены со всем импортированным каталогом ОМА."
-                                    photoMatchLabel = "Релевантность"
-                                    photoBusy = false; photoError = ""
+                                if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                                photoRemoteFinished = true
+                                if (result == null && api.isLocalPhotoSearchConfigured()) {
+                                    photoServerConnectionError =
+                                        "Ответ нейропоиска не распознан. Проверьте версию сервера на ПК."
+                                }
+                                if (result != null) {
+                                    photoServerConnectionError = ""
+                                    val (found, terms, note, indexed) = result
+                                    if (found.isNotEmpty() || indexed) {
+                                        photoRemoteSucceeded = true
+                                        photoMatches = found
+                                        if (terms.isNotEmpty()) photoDetected = terms.joinToString(", ")
+                                        photoAnalysisNote = note.ifBlank {
+                                            "Товары сопоставлены с каталогом ОМА."
+                                        }
+                                        photoMatchLabel = "Похожие товары"
+                                    }
+                                }
+                                if (photoLocalFinished || photoRemoteSucceeded) {
+                                    photoBusy = false
                                     navigate("shop:photo")
                                 }
                             }
@@ -1103,35 +1152,8 @@ class Storefront(
         }
     }
 
-    private fun normalizedObjectTerms(label: String): List<String> {
-        val labelText = label.lowercase(Locale.ROOT).trim()
-        if (labelText.isBlank()) return emptyList()
-        // ML Kit uses English labels; map common DIY subjects to Russian catalog names.
-        val dictionary = listOf(
-            "drill" to listOf("дрель", "шуруповерт"), "power tool" to listOf("электроинструмент"),
-            "hammer" to listOf("молоток"), "screw" to listOf("шуруп", "саморез"),
-            "tool" to listOf("инструмент"), "faucet" to listOf("смеситель"),
-            "tap" to listOf("смеситель"), "sink" to listOf("раковина", "мойка"),
-            "bathtub" to listOf("ванна"), "toilet" to listOf("унитаз"),
-            "lamp" to listOf("светильник", "лампа"), "light fixture" to listOf("светильник"),
-            "bulb" to listOf("лампа", "лампочка"), "paint brush" to listOf("кисть"),
-            "paint" to listOf("краска"), "bucket" to listOf("ведро"),
-            "roller" to listOf("валик"), "tile" to listOf("плитка"),
-            "wallpaper" to listOf("обои"), "floor" to listOf("ламинат", "покрытие"),
-            "chair" to listOf("стул", "кресло"), "table" to listOf("стол"),
-            "cabinet" to listOf("шкаф", "тумба"), "shelf" to listOf("полка"),
-            "door" to listOf("дверь"), "window" to listOf("окно"),
-            "plant" to listOf("растение"), "flower pot" to listOf("горшок"),
-            "pipe" to listOf("труба"), "cable" to listOf("кабель"),
-            "lawn" to listOf("газон"), "garden" to listOf("сад"),
-            "ladder" to listOf("лестница"), "saw" to listOf("пила"),
-            "glove" to listOf("перчатки"), "broom" to listOf("веник", "щетка")
-        )
-        val translated = dictionary.filter { labelText.contains(it.first) }.flatMap { it.second }
-        return if (translated.isNotEmpty()) translated.distinct()
-            else if (labelText.any { it in 'а'..'я' || it == 'ё' }) listOf(labelText)
-            else emptyList()
-    }
+    private fun normalizedObjectTerms(label: String): List<String> =
+        VisualTermMatcher.toSearchTerms(label)
 
     /** Matching is done on a worker to keep scrolling responsive with 134k rows. */
     private fun searchLocalTerms(terms: List<String>): List<Pair<Item, Int>> {
@@ -1140,10 +1162,7 @@ class Storefront(
         if (phrases.isEmpty()) return emptyList()
         val database = catalogDb
         val candidates = if (database != null) {
-            phrases.flatMap { term ->
-                runCatching { database.page(search = term, limit = 35).records }
-                    .getOrDefault(emptyList())
-            }.distinctBy { it.id }
+            runCatching { database.photoCandidates(phrases) }.getOrDefault(emptyList())
         } else products
         val scored = candidates.asSequence().mapNotNull { item ->
             val title = item.title.lowercase(Locale.ROOT)
@@ -1153,13 +1172,17 @@ class Storefront(
             var score = 0
             for (phrase in phrases) {
                 val tokens = phrase.split(Regex("[^а-яёa-z0-9]+")).filter { it.length >= 3 }
+                if (item.id.equals(phrase, ignoreCase = true)) score += 250
                 for (token in tokens) {
                     val stem = if (token.length >= 7) token.dropLast(2) else token
                     score += when {
-                        title.contains(stem) -> 12
-                        subcategory.contains(stem) -> 7
-                        category.contains(stem) -> 4
-                        brand.contains(stem) -> 2
+                        item.id.equals(token, ignoreCase = true) -> 150
+                        title.startsWith(stem) -> 25
+                        title.contains(stem) -> 16
+                        subcategory.contains(stem) -> 8
+                        category.contains(stem) -> 3
+                        brand.contains(stem) -> 5
+                        item.id.contains(token, ignoreCase = true) -> 15
                         else -> 0
                     }
                 }
@@ -1170,20 +1193,43 @@ class Storefront(
     }
 
     private data class RemotePhotoResult(
-        val items: List<Pair<Item, Int>>, val terms: List<String>, val note: String
+        val items: List<Pair<Item, Int>>,
+        val terms: List<String>,
+        val note: String,
+        val indexed: Boolean
     )
 
     private fun parseRemoteMatches(raw: String): RemotePhotoResult {
         val response = JSONObject(raw)
         val detected = response.optJSONArray("detected_objects") ?: JSONArray()
-        val terms = (0 until detected.length()).map { detected.optString(it) }
+        val terms = (0 until detected.length()).map { detected.optString(it).trim() }
             .filter { it.isNotBlank() }.take(5)
-        // Server may host a small demo catalog. Its SKUs are not a full OMA index.
-        return RemotePhotoResult(
-            if (terms.isNotEmpty()) searchLocalTerms(terms) else emptyList(),
-            terms,
-            response.optString("note", "Сервер распознал предметы на фотографии.")
-        )
+        val indexed = response.optString("method") == "siglip2_catalog_embeddings"
+        val returned = response.optJSONArray("matches") ?: JSONArray()
+        val orderedSkus = (0 until minOf(returned.length(), 30)).mapNotNull { index ->
+            val row = returned.optJSONObject(index) ?: return@mapNotNull null
+            row.optString("sku").trim().ifBlank { null }
+        }.distinct()
+
+        // The backend may contain only a demo catalogue. Never show items from
+        // it unless the SKU really exists in the 134k-item embedded OMA database.
+        val available = if (catalogDb != null) {
+            runCatching { catalogDb!!.bySkus(orderedSkus) }.getOrDefault(emptyList())
+        } else products.filter { it.id in orderedSkus }
+        val bySku = available.associateBy { it.id }
+        val verified = orderedSkus.mapIndexedNotNull { rank, sku ->
+            bySku[sku]?.let { it to (100 - rank).coerceAtLeast(1) }
+        }
+        val found = if (verified.isNotEmpty() || indexed) verified
+            else if (terms.isNotEmpty()) searchLocalTerms(terms)
+            else emptyList()
+        val note = response.optString("note").ifBlank {
+            if (indexed) "Визуальное сравнение с товарами из индексированной выгрузки ОМА."
+            else "Сервер распознал предметы на фотографии."
+        } + if (indexed && returned.length() > 0 && verified.isEmpty())
+            " Найденные артикулы не входят в локальную версию каталога; обновите каталог."
+        else ""
+        return RemotePhotoResult(found, terms, note, indexed)
     }
 
     private fun analyzePhotoOnDevice(uri: Uri, requestId: Int) {
@@ -1202,9 +1248,11 @@ class Storefront(
                 val results = searchLocalTerms(terms)
                 ui.post {
                     if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
+                    photoLocalFinished = true
+                    if (photoRemoteSucceeded) return@post
                     photoMatches = results
                     photoDetected = recognized.joinToString(", ") { it.text }
-                    photoBusy = false
+                    photoBusy = results.isEmpty() && !photoRemoteFinished
                     photoError = ""
                     photoMatchLabel = "Релевантность"
                     photoAnalysisNote = if (results.isNotEmpty())
@@ -1223,7 +1271,9 @@ class Storefront(
     private fun showPhotoFallback(requestId: Int, message: String) {
         ui.post {
             if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
-            photoBusy = false
+            photoLocalFinished = true
+            if (photoRemoteSucceeded) return@post
+            photoBusy = !photoRemoteFinished
             photoError = ""
             photoMatches = emptyList()
             photoAnalysisNote = "$message. Можно найти товар по названию в полном каталоге."
@@ -1273,6 +1323,86 @@ class Storefront(
         }
         body.addView(preview,LinearLayout.LayoutParams(-1,dp(210)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(14)})
         body.addView(text("Изображение может отправляться на настроенный демосервер ОМА для уточнения распознавания. Если сервер недоступен, используется анализ на телефоне.", 12f, false, Color.GRAY).apply { setPadding(dp(16),dp(10),dp(16),dp(4)) })
+        val sourceDescription = if (api.isLocalPhotoSearchConfigured()) {
+            "Адрес SigLIP2 сохранён. Нейросеть работает только при доступном ПК в Wi-Fi."
+        } else {
+            "Нейропоиск ПК не подключён: используется обычное распознавание."
+        }
+        body.addView(text(sourceDescription, 12.5f, false, if (api.isLocalPhotoSearchConfigured()) blue else Color.GRAY).apply {
+            setPadding(dp(16), dp(6), dp(16), dp(5))
+        })
+        if (photoServerConnectionError.isNotBlank()) {
+            body.addView(text(photoServerConnectionError, 12f, false, Color.rgb(183, 27, 38)).apply {
+                setPadding(dp(16), dp(6), dp(16), dp(10))
+            })
+        }
+        body.addView(outlineButton(
+            if (photoServerConfigurationOpen) "Скрыть настройки нейропоиска"
+            else "Настроить нейропоиск на ПК"
+        , {
+            photoServerConfigurationOpen = !photoServerConfigurationOpen
+            navigate("shop:photo")
+        }), LinearLayout.LayoutParams(-1, dp(38)).apply {
+            leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
+        })
+        if (photoServerConfigurationOpen) {
+            val address = EditText(activity).apply {
+                setSingleLine(true)
+                textSize = 14f
+                setTextColor(ink)
+                hint = "http://192.168.1.100:8765"
+                setText(photoServerDraftUrl.ifBlank {
+                    if (api.isLocalPhotoSearchConfigured()) api.photoSearchBaseUrl else ""
+                })
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI
+                background = rounded(Color.WHITE, 8)
+                setPadding(dp(12), 0, dp(12), 0)
+            }
+            body.addView(address, LinearLayout.LayoutParams(-1, dp(50)).apply {
+                leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
+            })
+            body.addView(outlineButton(
+                if (photoServerCheckBusy) "Проверяем связь с компьютером…"
+                else "Проверить подключение и начать поиск", {
+                if (!photoServerCheckBusy) {
+                    val entered = address.text.toString().trim()
+                    photoServerDraftUrl = entered
+                    photoServerCheckBusy = true
+                    photoServerConnectionError = ""
+                    api.verifyPhotoServer(entered) { result ->
+                        photoServerCheckBusy = false
+                        result.onSuccess { count ->
+                            api.photoSearchBaseUrl = entered
+                            photoServerDraftUrl = ""
+                            photoServerConfigurationOpen = false
+                            photoServerConnectionError = ""
+                            Toast.makeText(activity,
+                                "SigLIP2 доступна: $count товаров в индексе",
+                                Toast.LENGTH_LONG).show()
+                            photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
+                        }.onFailure { error ->
+                            photoServerConnectionError =
+                                "ПК не ответил на проверку: ${error.message ?: "неизвестная ошибка"}. " +
+                                "Проверьте адрес, Wi-Fi и брандмауэр Windows."
+                            navigate("shop:photo")
+                        }
+                    }
+                }
+            }), LinearLayout.LayoutParams(-1, dp(42)).apply {
+                leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(6)
+            })
+            body.addView(outlineButton("Вернуться к обычному поиску", {
+                api.resetPhotoSearchBaseUrl()
+                photoServerDraftUrl = ""
+                photoServerConnectionError = ""
+                photoServerConfigurationOpen = false
+                Toast.makeText(activity, "Обычный поиск включён", Toast.LENGTH_SHORT).show()
+                photoUri?.let { analyzePhoto(it) } ?: navigate("shop:photo")
+            }), LinearLayout.LayoutParams(-1, dp(42)).apply {
+                leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12)
+            })
+        }
         val hint = EditText(activity).apply {
             setSingleLine(true)
             setTextColor(ink);textSize = 15f
@@ -1297,14 +1427,46 @@ class Storefront(
                 body.addView(outlineButton("Выбрать другое фото",{pickPhoto()}),LinearLayout.LayoutParams(-1,dp(48)).apply{leftMargin=dp(16);rightMargin=dp(16)})
             }
             else->{
-                sectionTitle(body,"Похожие товары · ${photoMatches.size}")
+                if (photoMatches.isEmpty()) {
+                    sectionTitle(body, "Товар пока не распознан")
+                    body.addView(text(
+                        if (catalogLoading) "Встроенный каталог ещё загружается. Попробуйте поиск после загрузки."
+                        else "Автоматическое совпадение не найдено. Сделайте крупное фото одного предмета или уточните его название.",
+                        14f, false, ink
+                    ).apply { setPadding(dp(16),0,dp(16),dp(12)) })
+                    body.addView(outlineButton("Выбрать другое фото", { pickPhoto() }),
+                        LinearLayout.LayoutParams(-1,dp(46)).apply {
+                            leftMargin=dp(16);rightMargin=dp(16);bottomMargin=dp(12)
+                        })
+                    body.addView(text("Или выберите подходящий раздел каталога:", 13f, true).apply {
+                        setPadding(dp(16),0,dp(16),dp(8))
+                    })
+                    val quick = horizontal().apply { setPadding(dp(16),0,dp(12),dp(8)) }
+                    listOf("Инструмент","Сантехника","Электрика","Стройматериалы",
+                        "Интерьер и отделка","Товары для дома","Мебель","Благоустройство"
+                    ).filter { categoryMap.isEmpty() || categoryMap.containsKey(it) }.forEach { category ->
+                        quick.addView(outlineButton(category, {
+                            selectedCategory = category
+                            selectedSubcategory = ""
+                            pageOffset = 0
+                            navigate("shop:listing")
+                        }), LinearLayout.LayoutParams(-2,dp(40)).apply { rightMargin=dp(8) })
+                    }
+                    val scroll = HorizontalScrollView(activity).apply {
+                        isHorizontalScrollBarEnabled=false
+                        addView(quick)
+                    }
+                    body.addView(scroll, LinearLayout.LayoutParams(-1,dp(52)))
+                } else {
+                    sectionTitle(body,"Похожие товары · ${photoMatches.size}")
+                }
                 if(photoDetected.isNotBlank())body.addView(text("Распознано: $photoDetected",13f,true,ink).apply{setPadding(dp(16),0,dp(16),dp(6))})
-                val explanation=photoAnalysisNote.ifBlank{"Процент показывает визуальную и смысловую близость, а не гарантию совпадения артикула."}
-                body.addView(text(explanation,12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
-                photoMatches.forEach{(item,score)->
+                val explanation=photoAnalysisNote.ifBlank{"Показаны возможные совпадения из каталога ОМА. Точный артикул по фотографии не гарантируется."}
+                if (photoMatches.isNotEmpty()) body.addView(text(explanation,12.5f,false,Color.GRAY).apply{setPadding(dp(16),0,dp(16),dp(12))})
+                photoMatches.forEach{(item,_)->
                     val card=horizontal().apply{setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.WHITE);setOnClickListener{openProduct(item.id)}}
                     card.addView(photo(item,84),LinearLayout.LayoutParams(dp(84),dp(84)))
-                    val labels=vertical().apply{addView(text(item.title,14f,true).apply{maxLines=2});addView(text("Визуальное сходство: $score%",12.5f,false,blue));addView(text(price(item.price),14f,true))}
+                    val labels=vertical().apply{addView(text(item.title,14f,true).apply{maxLines=2});addView(text("Артикул: ${item.id}",12.5f,false,blue));addView(text(price(item.price),14f,true))}
                     card.addView(labels,LinearLayout.LayoutParams(0,dp(84),1f).apply{leftMargin=dp(12)})
                     body.addView(card,LinearLayout.LayoutParams(-1,dp(101)).apply{leftMargin=dp(12);rightMargin=dp(12);bottomMargin=dp(5)})
                 }

@@ -15,6 +15,23 @@ class Api(private val context: Context) {
         get() = preferences.getString("backend_url", "https://oma-be-85l2.onrender.com")!!.trimEnd('/')
         set(value) { preferences.edit().putString("backend_url", value.trim().trimEnd('/')).apply() }
 
+    /** Separate optional photo-search service; other ecosystem API calls stay unchanged. */
+    var photoSearchBaseUrl: String
+        get() = preferences.getString("photo_search_url", null)?.takeIf { it.isNotBlank() }
+            ?: baseUrl
+        set(value) {
+            preferences.edit()
+                .putString("photo_search_url", PhotoServerAddress.normalize(value))
+                .apply()
+        }
+
+    fun resetPhotoSearchBaseUrl() {
+        preferences.edit().remove("photo_search_url").apply()
+    }
+
+    fun isLocalPhotoSearchConfigured(): Boolean =
+        preferences.contains("photo_search_url")
+
     /** Make HTTP requests off the UI thread, then deliver results to the main thread. */
     fun request(
         method: String,
@@ -25,6 +42,38 @@ class Api(private val context: Context) {
     ) {
         executor.execute {
             val result = runCatching { exchange(method, path, payload, contractorId) }
+            android.os.Handler(context.mainLooper).post { callback(result) }
+        }
+    }
+
+    /** Verify that the laptop actually answers, before claiming Wi-Fi is connected. */
+    fun verifyPhotoServer(rawUrl: String, callback: (Result<Int>) -> Unit) {
+        executor.execute {
+            val result = runCatching {
+                val host = PhotoServerAddress.normalize(rawUrl)
+                val conn = URL("$host/api/v1/visual-search/status").openConnection() as HttpURLConnection
+                try {
+                    conn.requestMethod = "GET"
+                    conn.connectTimeout = 5_000
+                    conn.readTimeout = 8_000
+                    conn.setRequestProperty("Accept", "application/json")
+                    val code = conn.responseCode
+                    check(code in 200..299) { "Сервер вернул HTTP $code" }
+                    val status = JSONObject(conn.inputStream.bufferedReader(Charsets.UTF_8)
+                        .use { it.readText() })
+                    check(status.optBoolean("ready", false)) {
+                        "Сервер ещё не готов к поиску по фото"
+                    }
+                    check(status.optString("method") == "siglip2_catalog_embeddings") {
+                        "По этому адресу не найдена нейросеть SigLIP2"
+                    }
+                    val count = status.optInt("indexed_products", 0)
+                    check(count > 0) { "В индексе нет обработанных товаров" }
+                    count
+                } finally {
+                    conn.disconnect()
+                }
+            }
             android.os.Handler(context.mainLooper).post { callback(result) }
         }
     }
@@ -46,8 +95,7 @@ class Api(private val context: Context) {
         require(bytes.size <= 8 * 1024 * 1024) { "Фото больше 8 МБ" }
         val safeMime = mimeType.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") }
             ?: "image/jpeg"
-        val host = baseUrl
-        require(host.startsWith("https://")) { "Для демо-сервера нужен HTTPS URL" }
+        val host = PhotoServerAddress.normalize(photoSearchBaseUrl)
         val boundary = "OMAVisualSearch${System.nanoTime()}"
         val conn = URL("$host/api/v1/visual-search").openConnection() as HttpURLConnection
         try {
