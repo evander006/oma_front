@@ -9,8 +9,8 @@ android {
         applicationId = "by.oma.digitalhome.demo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "0.15.5-wifi-verified"
+        versionCode = 21
+        versionName = "0.16.0-3d-room-editor"
     }
     buildTypes {
         release { isMinifyEnabled = false }
