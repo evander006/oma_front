@@ -1145,10 +1145,7 @@ class Storefront(
         if (phrases.isEmpty()) return emptyList()
         val database = catalogDb
         val candidates = if (database != null) {
-            phrases.flatMap { term ->
-                runCatching { database.page(search = term, limit = 35).records }
-                    .getOrDefault(emptyList())
-            }.distinctBy { it.id }
+            runCatching { database.photoCandidates(phrases) }.getOrDefault(emptyList())
         } else products
         val scored = candidates.asSequence().mapNotNull { item ->
             val title = item.title.lowercase(Locale.ROOT)
@@ -1158,13 +1155,17 @@ class Storefront(
             var score = 0
             for (phrase in phrases) {
                 val tokens = phrase.split(Regex("[^а-яёa-z0-9]+")).filter { it.length >= 3 }
+                if (item.id.equals(phrase, ignoreCase = true)) score += 250
                 for (token in tokens) {
                     val stem = if (token.length >= 7) token.dropLast(2) else token
                     score += when {
-                        title.contains(stem) -> 12
-                        subcategory.contains(stem) -> 7
-                        category.contains(stem) -> 4
-                        brand.contains(stem) -> 2
+                        item.id.equals(token, ignoreCase = true) -> 150
+                        title.startsWith(stem) -> 25
+                        title.contains(stem) -> 16
+                        subcategory.contains(stem) -> 8
+                        category.contains(stem) -> 3
+                        brand.contains(stem) -> 5
+                        item.id.contains(token, ignoreCase = true) -> 15
                         else -> 0
                     }
                 }
