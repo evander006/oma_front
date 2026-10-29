@@ -106,6 +106,7 @@ class Storefront(
     private var photoLocalFinished = false
     private var photoRemoteFinished = false
     private var photoServerConfigurationOpen = false
+    private var photoServerConnectionError = ""
     private var photoMatchLabel = "Релевантность"
     private val rootCategories = listOf(
         "Акции", "Интерьер и отделка", "Благоустройство", "Стройматериалы",
@@ -1029,6 +1030,7 @@ class Storefront(
         photoAnalysisNote = ""; photoDetected = ""
         photoRemoteSucceeded = false
         photoLocalFinished = false; photoRemoteFinished = false
+        photoServerConnectionError = ""
         photoMatchLabel = "Релевантность"
         navigate("shop:photo")
 
@@ -1043,6 +1045,9 @@ class Storefront(
             if (bytes == null) {
                 ui.post {
                     if (requestId == photoSearchToken && isPhotoSearchVisible()) {
+                        if (api.isLocalPhotoSearchConfigured()) {
+                            photoServerConnectionError = "Не удалось подготовить фотографию для нейропоиска на ПК."
+                        }
                         photoRemoteFinished = true
                         if (photoLocalFinished) {
                             photoBusy = false
@@ -1054,6 +1059,10 @@ class Storefront(
                 api.visualSearch(bytes, "image/jpeg") { remote ->
                     if (remote.isFailure) {
                         if (requestId == photoSearchToken && isPhotoSearchVisible()) {
+                            if (api.isLocalPhotoSearchConfigured()) {
+                                photoServerConnectionError =
+                                    "ПК не ответил. Проверьте Wi-Fi, IP-адрес, порт 8765 и запущенный сервер."
+                            }
                             photoRemoteFinished = true
                             if (photoLocalFinished) {
                                 photoBusy = false
@@ -1066,7 +1075,12 @@ class Storefront(
                             ui.post {
                                 if (requestId != photoSearchToken || !isPhotoSearchVisible()) return@post
                                 photoRemoteFinished = true
+                                if (result == null && api.isLocalPhotoSearchConfigured()) {
+                                    photoServerConnectionError =
+                                        "Ответ нейропоиска не распознан. Проверьте версию сервера на ПК."
+                                }
                                 if (result != null) {
+                                    photoServerConnectionError = ""
                                     val (found, terms, note, indexed) = result
                                     if (found.isNotEmpty() || indexed) {
                                         photoRemoteSucceeded = true
@@ -1315,6 +1329,11 @@ class Storefront(
         body.addView(text(sourceDescription, 12.5f, false, if (api.isLocalPhotoSearchConfigured()) blue else Color.GRAY).apply {
             setPadding(dp(16), dp(6), dp(16), dp(5))
         })
+        if (photoServerConnectionError.isNotBlank()) {
+            body.addView(text(photoServerConnectionError, 12f, false, Color.rgb(183, 27, 38)).apply {
+                setPadding(dp(16), dp(6), dp(16), dp(10))
+            })
+        }
         body.addView(outlineButton(
             if (photoServerConfigurationOpen) "Скрыть настройки нейропоиска"
             else "Настроить нейропоиск на ПК"
