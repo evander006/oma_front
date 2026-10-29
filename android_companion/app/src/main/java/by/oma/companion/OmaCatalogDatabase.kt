@@ -130,6 +130,42 @@ internal class OmaCatalogDatabase(private val directory: File) {
         categories.mapValues { it.value.toList() }
     }
 
+    /**
+     * Prefer title and exact SKU hits over broad category text matches.
+     * Work against the full 134k catalogue in one read-only DB session.
+     * This is a semantic/text fallback, not a claim of pixel-level similarity.
+     */
+    fun photoCandidates(terms: List<String>, perTerm: Int = 120): List<Storefront.Item> =
+        withDb { db ->
+            val found = LinkedHashMap<String, Storefront.Item>()
+            for (term in terms.map { it.trim() }.filter { it.length >= 3 }.distinct().take(10)) {
+                val variants = likeVariants(term)
+                if (variants.isEmpty()) continue
+                val where = variants.joinToString(" OR ") {
+                    "(name LIKE ? OR category_path LIKE ? OR brand LIKE ? OR sku LIKE ?)"
+                }
+                val title = variants.joinToString(" OR ") { "name LIKE ?" }
+                val sku = variants.joinToString(" OR ") { "sku LIKE ?" }
+                val category = variants.joinToString(" OR ") { "category_path LIKE ?" }
+                val args = mutableListOf<String>()
+                for (v in variants) repeat(4) { args.add("%$v%") }
+                for (i in 0 until 3) for (v in variants) args.add("%$v%")
+                args.add(perTerm.coerceIn(1, 250).toString())
+                val sql =
+                    "SELECT $columns FROM products WHERE image_urls IS NOT NULL " +
+                        "AND image_urls <> '[]' AND ($where) " +
+                        "ORDER BY CASE WHEN ($title) THEN 0 WHEN ($sku) THEN 1 " +
+                        "WHEN ($category) THEN 2 ELSE 3 END, LENGTH(name) ASC LIMIT ?"
+                db.rawQuery(sql, args.toTypedArray()).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val item = row(cursor)
+                        found.putIfAbsent(item.id, item)
+                    }
+                }
+            }
+            found.values.toList()
+        }
+
     /** Resolve ordered backend image-search results against real embedded OMA SKUs.
      * A single SQL query avoids blocking on one database open for each result.
      */
